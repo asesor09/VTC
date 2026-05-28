@@ -43,7 +43,6 @@ def inicializar_tablas():
     ''')
     
     # Bloque de seguridad: Intentar agregar las nuevas columnas si la tabla ya existía de antes
-    # Esto evita errores en caso de que ya tengas la tabla 'gastos' creada en Neon
     try:
         cur.execute("ALTER TABLE gastos ADD COLUMN kilometraje INTEGER;")
         cur.execute("ALTER TABLE gastos ADD COLUMN aplica_concepto TEXT;")
