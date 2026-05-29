@@ -20,14 +20,22 @@ def inicializar_tablas():
     cur.execute('''CREATE TABLE IF NOT EXISTS gastos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), tipo_gasto TEXT, monto NUMERIC, institucion_destino TEXT, fecha DATE, detalle TEXT, kilometraje INTEGER, aplica_concepto TEXT, concepto TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS mantenimientos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), descripcion TEXT, km_proximo_cambio INTEGER, estado TEXT DEFAULT 'Pendiente')''')
     
-    # 2. Tablas de Usuarios y Configuración
+    # 2. Tablas Faltantes Agregadas (Usuarios y Configuración)
     cur.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, clave TEXT, rol TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS configuracion (id SERIAL PRIMARY KEY, email_remitente TEXT, email_clave TEXT, email_destino TEXT)''')
+    
+    # 3. NUEVA TABLA: Categorías de Gastos
+    cur.execute('''CREATE TABLE IF NOT EXISTS categorias_gastos (id SERIAL PRIMARY KEY, nombre TEXT UNIQUE NOT NULL)''')
     
     # Insertar admin por defecto si no existe
     cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT DO NOTHING")
     
-    # Columnas extra para soportar todas las versiones
+    # Insertar categorías base por defecto si la tabla es nueva
+    categorias_base = ["Combustible", "Peaje", "Mantenimiento", "Seguro", "Otros"]
+    for cat in categorias_base:
+        cur.execute("INSERT INTO categorias_gastos (nombre) VALUES (%s) ON CONFLICT DO NOTHING", (cat,))
+    
+    # Columnas extra para soportar todas las versiones de tu base de datos
     columnas_extra = [("kilometraje", "INTEGER"), ("aplica_concepto", "TEXT"), ("concepto", "TEXT"), ("detalle", "TEXT"), ("tipo_gasto", "TEXT")]
     for col, tipo in columnas_extra:
         try: cur.execute(f"ALTER TABLE gastos ADD COLUMN {col} {tipo};")
@@ -86,7 +94,8 @@ if not st.session_state['logged_in']:
 st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.update({'logged_in': False, 'u_rol': None}))
 st.title("🚐 Panel de Control - Acceso Global")
 
-opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos", "🛠️ Mantenimientos", "📊 Reportes Avanzados", "🔒 Config. Alertas"]
+# AÑADIDA LA VENTANA DE CATEGORÍAS AL MENÚ
+opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos", "🛠️ Mantenimientos", "🏷️ Categorías", "📊 Reportes Avanzados", "🔒 Config. Alertas"]
 if st.session_state.u_rol == "admin":
     opciones_menu.append("⚙️ Usuarios")
 
@@ -97,7 +106,6 @@ if menu == "🏠 Inicio":
     st.subheader("Resumen y Análisis General")
     conn = conectar_db()
     
-    # Métricas Globales
     v = pd.read_sql("SELECT COUNT(*) FROM vehiculos", conn).iloc[0,0]
     g = pd.read_sql("SELECT SUM(monto) FROM gastos", conn).iloc[0,0] or 0
     m = pd.read_sql("SELECT COUNT(*) FROM mantenimientos WHERE estado='Pendiente'", conn).iloc[0,0]
@@ -110,14 +118,12 @@ if menu == "🏠 Inicio":
     st.markdown("---")
     st.subheader("📊 Análisis Interactivo de Gastos")
     
-    # Extraer todos los detalles para los filtros
     df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.tipo_gasto, g.concepto, g.monto, g.institucion_destino, g.detalle, g.kilometraje FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
     conn.close()
     
     if not df_inicio.empty:
         df_inicio['fecha'] = pd.to_datetime(df_inicio['fecha']).dt.date
         
-        # --- FILTROS ---
         st.markdown("### 🔍 Filtrar Información")
         f1, f2, f3 = st.columns(3)
         with f1:
@@ -128,7 +134,6 @@ if menu == "🏠 Inicio":
         with f3:
             fecha_fin = st.date_input("Fecha Fin", df_inicio['fecha'].max())
             
-        # Aplicar filtros
         mask = (df_inicio['placa'].isin(placas_sel)) & (df_inicio['fecha'] >= fecha_inicio) & (df_inicio['fecha'] <= fecha_fin)
         df_filtrado = df_inicio[mask]
         
@@ -136,7 +141,6 @@ if menu == "🏠 Inicio":
         if not df_filtrado.empty:
             st.metric("Total Gastos (Según filtros aplicados)", f"${df_filtrado['monto'].sum():,.2f}")
             
-            # Gráficas dinámicas
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("#### Gastos por Vehículo")
@@ -146,17 +150,11 @@ if menu == "🏠 Inicio":
                 gastos_fecha = df_filtrado.groupby('fecha')['monto'].sum().reset_index()
                 st.line_chart(data=gastos_fecha.set_index('fecha'))
                 
-            # Tabla de detalles y Botón EXCEL
             st.markdown("#### Detalle de Registros")
             st.dataframe(df_filtrado, use_container_width=True)
             
             csv_data = df_filtrado.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-            st.download_button(
-                label="📥 Descargar Reporte a Excel",
-                data=csv_data,
-                file_name=f"reporte_inicio_{fecha_inicio}_a_{fecha_fin}.csv",
-                mime="text/csv"
-            )
+            st.download_button(label="📥 Descargar Reporte a Excel", data=csv_data, file_name=f"reporte_inicio_{fecha_inicio}_a_{fecha_fin}.csv", mime="text/csv")
         else:
             st.warning("No se encontraron registros para los filtros seleccionados.")
     else:
@@ -196,14 +194,42 @@ elif menu == "🚚 Gestión de Vehículos":
         st.dataframe(pd.read_sql("SELECT placa, marca, modelo, tipo, conductor, km_actual FROM vehiculos", conn), use_container_width=True)
         conn.close()
 
-# --- 💸 GASTOS ---
-elif menu == "💸 Registro de Gastos":
-    conn = conectar_db(); v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
-    try: cat_data = pd.read_sql("SELECT DISTINCT tipo_gasto FROM gastos WHERE tipo_gasto IS NOT NULL", conn)
-    except: cat_data = pd.DataFrame({'tipo_gasto': []})
+# --- 🏷️ CATEGORÍAS (NUEVA VENTANA SUGERIDA) ---
+elif menu == "🏷️ Categorías":
+    st.subheader("Gestión de Categorías de Gastos")
+    conn = conectar_db()
     
-    lista_categorias = list(set(["Combustible", "Peaje", "Mantenimiento", "Seguro", "Otros"] + cat_data['tipo_gasto'].dropna().tolist()))
-    lista_categorias.sort(); lista_categorias.append("➕ Agregar nueva...")
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        st.markdown("**Agregar Nueva Categoría**")
+        with st.form("form_nueva_cat"):
+            nueva_cat = st.text_input("Nombre de la categoría")
+            if st.form_submit_button("Guardar"):
+                if nueva_cat.strip() != "":
+                    cur = conn.cursor()
+                    try:
+                        cur.execute("INSERT INTO categorias_gastos (nombre) VALUES (%s)", (nueva_cat.strip(),))
+                        conn.commit(); st.success("✅ Agregada"); st.rerun()
+                    except:
+                        st.error("Esta categoría ya existe.")
+                else:
+                    st.warning("El campo no puede estar vacío.")
+    
+    with c2:
+        st.markdown("**Categorías Disponibles**")
+        df_cat = pd.read_sql("SELECT id, nombre FROM categorias_gastos ORDER BY nombre", conn)
+        st.dataframe(df_cat, use_container_width=True, hide_index=True)
+        
+    conn.close()
+
+# --- 💸 GASTOS (LIMPIO Y MEJORADO) ---
+elif menu == "💸 Registro de Gastos":
+    conn = conectar_db()
+    v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
+    
+    # Ahora lee directamente desde la nueva tabla (más rápido y sin errores)
+    cat_data = pd.read_sql("SELECT nombre FROM categorias_gastos ORDER BY nombre", conn)
+    lista_categorias = cat_data['nombre'].tolist()
     
     if not v_data.empty:
         with st.form("form_gasto"):
@@ -212,8 +238,8 @@ elif menu == "💸 Registro de Gastos":
             with c1:
                 v_sel = st.selectbox("Vehículo", v_data['placa'])
                 v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-                tipo_g_sel = st.selectbox("Categoría Principal", lista_categorias)
-                tipo_g = st.text_input("Escribe la nueva categoría") if tipo_g_sel == "➕ Agregar nueva..." else tipo_g_sel
+                # Selector mucho más limpio
+                tipo_g = st.selectbox("Categoría Principal", lista_categorias)
                 monto = st.number_input("Monto ($)", min_value=0.0)
                 kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
             with c2:
@@ -224,7 +250,6 @@ elif menu == "💸 Registro de Gastos":
             detalle = st.text_area("Detalles adicionales")
             
             if st.form_submit_button("Guardar Gasto"):
-                if tipo_g_sel == "➕ Agregar nueva..." and tipo_g.strip() == "": tipo_g = "Otros"
                 cur = conn.cursor()
                 cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional))
                 cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
