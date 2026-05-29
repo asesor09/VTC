@@ -1,3 +1,4 @@
+Python
 import streamlit as st
 import psycopg2
 import pandas as pd
@@ -49,79 +50,6 @@ if not st.session_state['logged_in']:
         else: st.error("Credenciales incorrectas"); conn.close()
     st.stop()
 
-# --- PANEL PRINCIPAL ---
-st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.update({'logged_in': False}))
-st.title("🚐 Panel de Control - Acceso Global")
-menu = st.sidebar.radio("Navegación", ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos", "🛠️ Mantenimientos", "📊 Reportes Avanzados", "👤 Usuarios"])
-
-# --- LÓGICA DE VENTANAS (Tal cual la tenías) ---
-if menu == "🏠 Inicio":
-    # ... [Tu lógica de Inicio con gráficas] ...
-    pass
-elif menu == "🚚 Gestión de Vehículos":
-    # ... [Tu lógica de Vehículos] ...
-    pass
-elif menu == "💸 Registro de Gastos":
-    # ... [Tu lógica de Gastos] ...
-    pass
-# ... (Continúa con el resto de tus bloques tal cual los tenías en tu código original)
-    
-    # 1. Tabla de Vehículos
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS vehiculos (
-            id SERIAL PRIMARY KEY,
-            placa TEXT UNIQUE NOT NULL,
-            marca TEXT,
-            modelo TEXT,
-            tipo TEXT,
-            conductor TEXT,
-            km_actual INTEGER DEFAULT 0
-        )
-    ''')
-    
-    # 2. Tabla de Gastos
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS gastos (
-            id SERIAL PRIMARY KEY,
-            vehiculo_id INTEGER REFERENCES vehiculos(id),
-            tipo_gasto TEXT,
-            monto NUMERIC,
-            institucion_destino TEXT,
-            fecha DATE,
-            detalle TEXT,
-            kilometraje INTEGER,
-            aplica_concepto TEXT,
-            concepto TEXT
-        )
-    ''')
-    
-    # 3. Tabla de Mantenimientos
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS mantenimientos (
-            id SERIAL PRIMARY KEY,
-            vehiculo_id INTEGER REFERENCES vehiculos(id),
-            descripcion TEXT,
-            km_proximo_cambio INTEGER,
-            estado TEXT DEFAULT 'Pendiente'
-        )
-    ''')
-    
-    # Seguridad para añadir columnas a gastos si es base antigua
-    columnas_extra = [
-        ("kilometraje", "INTEGER"),
-        ("aplica_concepto", "TEXT"),
-        ("concepto", "TEXT"),
-        ("detalle", "TEXT"),
-        ("tipo_gasto", "TEXT")
-    ]
-    for col, tipo in columnas_extra:
-        try:
-            cur.execute(f"ALTER TABLE gastos ADD COLUMN {col} {tipo};")
-        except Exception:
-            pass
-            
-    conn.close()
-
 # --- CONFIGURACIÓN DE LA INTERFAZ ---
 st.set_page_config(page_title="Transporte Jacobo Pro", layout="wide", page_icon="🚐")
 
@@ -138,9 +66,26 @@ try:
 except Exception as e:
     st.sidebar.error(f"Error de conexión: {e}")
 
+st.title("🚐 Panel de Control - Acceso Global")
+menu = st.sidebar.radio("Navegación", ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos", "🛠️ Mantenimientos", "📊 Reportes Avanzados"])
 
+# --- 🏠 INICIO ---
+if menu == "🏠 Inicio":
+    st.subheader("Resumen y Análisis General")
+    conn = conectar_db()
     
+    # Métricas principales
+    v = pd.read_sql("SELECT COUNT(*) FROM vehiculos", conn).iloc[0,0]
+    g = pd.read_sql("SELECT SUM(monto) FROM gastos", conn).iloc[0,0] or 0
+    m = pd.read_sql("SELECT COUNT(*) FROM mantenimientos WHERE estado='Pendiente'", conn).iloc[0,0]
     
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Vehículos en la Flota", v)
+    c2.metric("Total Inversión (Gastos)", f"${g:,.2f}")
+    c3.metric("Mantenimientos Pendientes", m)
+    
+    st.markdown("---")
+    st.subheader("📊 Gastos por Vehículo y Fechas")
     
     # Recuperamos la información uniendo gastos y vehículos
     df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.monto FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
