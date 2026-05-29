@@ -31,7 +31,7 @@ def inicializar_tablas():
     cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT DO NOTHING")
     
     # Categorías base por defecto
-    categorias_base = ["Combustible", "Peaje", "Mantenimiento", "Seguro", "Otros"]
+    categorias_base = ["Otros"]
     for cat in categorias_base:
         cur.execute("INSERT INTO categorias_gastos (nombre) VALUES (%s) ON CONFLICT DO NOTHING", (cat,))
     
@@ -165,7 +165,7 @@ elif menu == "🚚 Gestión de Vehículos":
     with t_reg:
         with st.form("reg_vehiculo"):
             c1, c2 = st.columns(2)
-            placa = c1.text_input("Placa").upper(); marca = c1.text_input("Marca")
+            placa = c1.text_input("Matricula").upper(); marca = c1.text_input("Marca")
             modelo = c1.text_input("Modelo"); cond = c2.text_input("Conductor")
             tipo = c2.selectbox("Tipo", ["Ambulancia", "Van", "Particular", "Microbús"])
             km = c2.number_input("KM Inicial", min_value=0)
