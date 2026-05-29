@@ -170,9 +170,18 @@ elif menu == "🚚 Gestión de Vehículos":
             tipo = c2.selectbox("Tipo", ["Ambulancia", "Van", "Particular", "Microbús"])
             km = c2.number_input("KM Inicial", min_value=0)
             if st.form_submit_button("Guardar Vehículo"):
-                conn = conectar_db(); cur = conn.cursor()
-                cur.execute("INSERT INTO vehiculos (placa, marca, modelo, tipo, conductor, km_actual) VALUES (%s,%s,%s,%s,%s,%s)", (placa, marca, modelo, tipo, cond, km))
-                conn.commit(); conn.close(); st.success("✅ Registrado con éxito"); st.rerun()
+                if placa.strip() == "":
+                    st.warning("La placa no puede estar vacía.")
+                else:
+                    conn = conectar_db(); cur = conn.cursor()
+                    try:
+                        cur.execute("INSERT INTO vehiculos (placa, marca, modelo, tipo, conductor, km_actual) VALUES (%s,%s,%s,%s,%s,%s)", (placa, marca, modelo, tipo, cond, km))
+                        conn.commit(); st.success("✅ Registrado con éxito"); st.rerun()
+                    except Exception as e:
+                        conn.rollback()
+                        st.error(f"⚠️ Error: La placa '{placa}' ya está registrada en el sistema o hay un problema con los datos.")
+                    finally:
+                        conn.close()
 
     with t_edit:
         conn = conectar_db(); df_v = pd.read_sql("SELECT * FROM vehiculos", conn); conn.close()
@@ -210,9 +219,8 @@ elif menu == "🏷️ Categorías":
                         cur.execute("INSERT INTO categorias_gastos (nombre) VALUES (%s)", (nueva_cat.strip(),))
                         conn.commit(); st.success("✅ Agregada"); st.rerun()
                     except Exception as e:
-                        # CORRECCIÓN: Rollback limpia la transacción fallida antes de continuar
                         conn.rollback() 
-                        st.error("Esta categoría ya existe.")
+                        st.error("⚠️ Esta categoría ya existe.")
                 else:
                     st.warning("El campo no puede estar vacío.")
     
@@ -299,9 +307,17 @@ elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
         nom = st.text_input("Nombre"); usr = st.text_input("Usuario"); clv = st.text_input("Clave")
         rol = st.selectbox("Rol", ["vendedor", "admin"])
         if st.form_submit_button("👤 Crear"):
-            cur = conn.cursor()
-            cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES (%s,%s,%s,%s)", (nom, usr, hashlib.sha256(clv.encode()).hexdigest(), rol))
-            conn.commit(); st.rerun()
+            if usr.strip() == "":
+                st.warning("El usuario no puede estar vacío.")
+            else:
+                cur = conn.cursor()
+                try:
+                    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES (%s,%s,%s,%s)", (nom, usr, hashlib.sha256(clv.encode()).hexdigest(), rol))
+                    conn.commit(); st.success("✅ Usuario creado"); st.rerun()
+                except Exception as e:
+                    conn.rollback()
+                    st.error("⚠️ Error: Este nombre de usuario ya existe en el sistema.")
+    
     st.dataframe(pd.read_sql("SELECT nombre, usuario, rol FROM usuarios", conn), use_container_width=True)
     conn.close()
 
@@ -318,5 +334,5 @@ elif menu == "🔒 Config. Alertas":
         if st.form_submit_button("💾 Guardar"):
             cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino)
                            VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''', (rem, cla, des))
-            conn.commit(); st.success("Guardado."); st.rerun()
+            conn.commit(); st.success("✅ Guardado."); st.rerun()
     conn.close()
