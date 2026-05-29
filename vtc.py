@@ -345,4 +345,78 @@ elif menu == "💸 Registro de Gastos":
             if not df_g.empty:
                 df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
                 mes_sel = st.selectbox("Filtrar historial por Mes", sorted(df_g['mes'].unique(), reverse=True))
-                st.dataframe(df_g[df_g['mes'] == mes_sel
+                st.dataframe(df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'kilometraje', 'concepto', 'institucion_destino']], use_container_width=True)
+            else:
+                st.info("No hay historial de gastos.")
+                
+    else: 
+        st.warning("⚠️ Registra un vehículo primero.")
+    conn.close()
+
+# --- 🛠️ MANTENIMIENTOS ---
+elif menu == "🛠️ Mantenimientos":
+    conn = conectar_db(); v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
+    if not v_data.empty:
+        c1, c2 = st.columns(2)
+        with c1:
+            with st.form("form_mant"):
+                v_sel = st.selectbox("Vehículo", v_data['placa'])
+                v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
+                desc = st.text_area("Descripción")
+                km_prox = st.number_input("Kilometraje para próximo cambio", min_value=0)
+                if st.form_submit_button("Programar"):
+                    cur = conn.cursor()
+                    cur.execute("INSERT INTO mantenimientos (vehiculo_id, descripcion, km_proximo_cambio, estado) VALUES (%s, %s, %s, 'Pendiente')", (v_id, desc, km_prox))
+                    conn.commit(); st.success("✅ Programado"); st.rerun()
+        with c2:
+            st.dataframe(v_data[['placa', 'km_actual']], use_container_width=True)
+            
+        df_m = pd.read_sql("SELECT m.id, v.placa, m.descripcion, m.km_proximo_cambio, m.estado FROM mantenimientos m JOIN vehiculos v ON m.vehiculo_id = v.id", conn)
+        if not df_m.empty:
+            pendientes = df_m[df_m['estado'] == 'Pendiente']
+            if not pendientes.empty:
+                st.dataframe(pendientes[['placa', 'descripcion', 'km_proximo_cambio']], use_container_width=True)
+                with st.form("actualizar_mant"):
+                    mant_id = st.selectbox("ID a cerrar", pendientes['id'])
+                    if st.form_submit_button("Marcar como Realizado"):
+                        cur = conn.cursor(); cur.execute("UPDATE mantenimientos SET estado = 'Realizado' WHERE id = %s", (int(mant_id),))
+                        conn.commit(); st.success("✅ Cerrado"); st.rerun()
+    conn.close()
+
+# --- ⚙️ USUARIOS ---
+elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
+    st.title("⚙️ Usuarios")
+    conn = conectar_db()
+    with st.form("fu"):
+        nom = st.text_input("Nombre"); usr = st.text_input("Usuario"); clv = st.text_input("Clave")
+        rol = st.selectbox("Rol", ["vendedor", "admin"])
+        if st.form_submit_button("👤 Crear"):
+            if usr.strip() == "":
+                st.warning("El usuario no puede estar vacío.")
+            else:
+                cur = conn.cursor()
+                try:
+                    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES (%s,%s,%s,%s)", (nom, usr, hashlib.sha256(clv.encode()).hexdigest(), rol))
+                    conn.commit(); st.success("✅ Usuario creado"); st.rerun()
+                except Exception as e:
+                    conn.rollback()
+                    st.error("⚠️ Error: Este nombre de usuario ya existe en el sistema.")
+    
+    st.dataframe(pd.read_sql("SELECT nombre, usuario, rol FROM usuarios", conn), use_container_width=True)
+    conn.close()
+
+# --- 🔒 CONFIG. ALERTAS ---
+elif menu == "🔒 Config. Alertas":
+    st.title("🔒 Configuración Segura")
+    conn = conectar_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM configuracion WHERE id = 1"); act = cur.fetchone()
+    with st.form("f_conf"):
+        rem = st.text_input("Gmail Remitente", value=act[1] if act else "")
+        cla = st.text_input("Clave Gmail (16 letras)", type="password", value=act[2] if act else "")
+        des = st.text_input("Correo Destino", value=act[3] if act else "")
+        if st.form_submit_button("💾 Guardar"):
+            cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino)
+                           VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''', (rem, cla, des))
+            conn.commit(); st.success("✅ Guardado."); st.rerun()
+    conn.close()
