@@ -43,7 +43,7 @@ def inicializar_tablas():
         )
     ''')
     
-    # 3. Tabla de Mantenimientos (Restaurada de tu diseño original)
+    # 3. Tabla de Mantenimientos
     cur.execute('''
         CREATE TABLE IF NOT EXISTS mantenimientos (
             id SERIAL PRIMARY KEY,
@@ -210,4 +210,53 @@ elif menu == "🛠️ Mantenimientos":
                     cur.execute("INSERT INTO mantenimientos (vehiculo_id, descripcion, km_proximo_cambio, estado) VALUES (%s, %s, %s, 'Pendiente')", (v_id, desc, km_prox))
                     conn.commit(); st.success("✅ Programado con éxito"); st.rerun()
         
-        with c2
+        with c2:
+            st.subheader("Estado de la Flota")
+            st.dataframe(v_data[['placa', 'km_actual']], use_container_width=True)
+            
+        st.markdown("---")
+        st.subheader("Mantenimientos Pendientes")
+        df_m = pd.read_sql("SELECT m.id, v.placa, m.descripcion, m.km_proximo_cambio, m.estado FROM mantenimientos m JOIN vehiculos v ON m.vehiculo_id = v.id", conn)
+        conn.close()
+        
+        if not df_m.empty:
+            pendientes = df_m[df_m['estado'] == 'Pendiente']
+            if not pendientes.empty:
+                st.dataframe(pendientes[['placa', 'descripcion', 'km_proximo_cambio']], use_container_width=True)
+                
+                with st.form("actualizar_mant"):
+                    mant_id = st.selectbox("Seleccione el ID del mantenimiento a cerrar", pendientes['id'])
+                    if st.form_submit_button("Marcar como Realizado"):
+                        conn = conectar_db(); cur = conn.cursor()
+                        cur.execute("UPDATE mantenimientos SET estado = 'Realizado' WHERE id = %s", (int(mant_id),))
+                        conn.commit(); conn.close()
+                        st.success("✅ Mantenimiento cerrado"); st.rerun()
+            else:
+                st.info("No hay mantenimientos pendientes en este momento.")
+    else:
+        st.warning("⚠️ Registra un vehículo primero.")
+        conn.close()
+
+# --- 📊 REPORTES AVANZADOS ---
+elif menu == "📊 Reportes Avanzados":
+    conn = conectar_db()
+    df_g = pd.read_sql("SELECT g.*, v.placa FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
+    conn.close()
+    
+    st.subheader("Resumen General de Operaciones")
+    if not df_g.empty:
+        df_g['fecha'] = pd.to_datetime(df_g['fecha'])
+        df_g['mes'] = df_g['fecha'].dt.strftime('%Y-%m')
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### Gastos por Categoría")
+            gastos_cat = df_g.groupby('tipo_gasto')['monto'].sum().reset_index()
+            st.bar_chart(data=gastos_cat, x='tipo_gasto', y='monto')
+            
+        with c2:
+            st.markdown("#### Gasto Total por Vehículo")
+            gastos_vehiculo = df_g.groupby('placa')['monto'].sum().reset_index()
+            st.bar_chart(data=gastos_vehiculo, x='placa', y='monto')
+    else:
+        st.info("No hay suficientes datos registrados para generar los reportes.")
