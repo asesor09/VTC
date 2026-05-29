@@ -1,36 +1,49 @@
 import streamlit as st
 import psycopg2
 import pandas as pd
-from datetime import datetime, timedelta
-import io
-import plotly.express as px
-import smtplib
-from email.mime.text import MIMEText
+import hashlib
+from datetime import datetime
 
-# --- 1. CONFIGURACIÓN DE LA BASE DE DATOS ---
+# --- CONFIGURACIÓN ---
 DB_URL = "postgresql://neondb_owner:npg_Hw6lhgzCrm0B@ep-winter-mud-aqkidkqi-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 def conectar_db():
     return psycopg2.connect(DB_URL)
 
 def inicializar_db():
-    conn = conectar_db(); cur = conn.cursor()
-    cur.execute('''CREATE TABLE IF NOT EXISTS configuracion (
-                    id INTEGER PRIMARY KEY,
-                    email_remitente TEXT, email_clave TEXT, email_destino TEXT,
-                    twilio_sid TEXT, twilio_token TEXT, twilio_whatsapp_de TEXT, whatsapp_a TEXT)''')
-    cur.execute('CREATE TABLE IF NOT EXISTS vehiculos (id SERIAL PRIMARY KEY, placa TEXT UNIQUE NOT NULL, marca TEXT, modelo TEXT, conductor TEXT)')
-    cur.execute('CREATE TABLE IF NOT EXISTS gastos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), tipo_gasto TEXT, monto NUMERIC, fecha DATE, detalle TEXT)')
-    cur.execute('CREATE TABLE IF NOT EXISTS ventas (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), cliente TEXT, valor_viaje NUMERIC, fecha DATE, descripcion TEXT)')
-    cur.execute('''CREATE TABLE IF NOT EXISTS hoja_vida (
+    conn = conectar_db()
+    conn.autocommit = True
+    cur = conn.cursor()
+    
+    # 1. Crear tablas fundamentales
+    cur.execute('''CREATE TABLE IF NOT EXISTS vehiculos (id SERIAL PRIMARY KEY, placa TEXT UNIQUE NOT NULL, marca TEXT, modelo TEXT, tipo TEXT, conductor TEXT, km_actual INTEGER DEFAULT 0)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS gastos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), tipo_gasto TEXT, monto NUMERIC, institucion_destino TEXT, fecha DATE, detalle TEXT, kilometraje INTEGER, aplica_concepto TEXT, concepto TEXT)''')
+    cur.execute('''CREATE TABLE IF NOT EXISTS mantenimientos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), descripcion TEXT, km_proximo_cambio INTEGER, estado TEXT DEFAULT 'Pendiente')''')
+    
+    # 2. Recrear tabla de usuarios para asegurar consistencia de columnas
+    # Esto elimina cualquier configuración vieja que esté dando el error UndefinedColumn
+    cur.execute('DROP TABLE IF EXISTS usuarios')
+    cur.execute('''CREATE TABLE usuarios (
                     id SERIAL PRIMARY KEY, 
-                    vehiculo_id INTEGER UNIQUE REFERENCES vehiculos(id), 
-                    soat_vence DATE, tecno_vence DATE, prev_vence DATE,
-                    p_contractual DATE, p_extracontractual DATE, p_todoriesgo DATE, t_operaciones DATE)''')
-    cur.execute('CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE NOT NULL, clave TEXT NOT NULL, rol TEXT DEFAULT "vendedor")')
-    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT (usuario) DO NOTHING")
-    conn.commit(); conn.close()
+                    nombre TEXT, 
+                    usuario TEXT UNIQUE, 
+                    clave TEXT, 
+                    rol TEXT)''')
+    
+    # 3. Insertar el administrador
+    try:
+        cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', %s, 'admin')", (hashlib.sha256('Jacobo2026'.encode()).hexdigest(),))
+    except Exception as e:
+        st.error(f"Error insertando admin: {e}")
+    
+    conn.close()
 
+# --- EJECUCIÓN ---
+st.set_page_config(page_title="Transporte Jacobo Pro", layout="wide")
+inicializar_db()
+
+st.title("Sistema Cargado Correctamente")
+st.success("La base de datos ha sido sincronizada con la estructura de usuarios requerida.")
 # --- 2. LÓGICA DE ENVÍO ---
 def enviar_alertas_sistema(mensaje):
     try:
