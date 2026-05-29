@@ -24,8 +24,14 @@ def inicializar_tablas():
     cur.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, clave TEXT, rol TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS configuracion (id SERIAL PRIMARY KEY, email_remitente TEXT, email_clave TEXT, email_destino TEXT)''')
     
-    # 3. Tabla de Categorías Mejorada (Con precio predeterminado)
-    cur.execute('''CREATE TABLE IF NOT EXISTS categorias_gastos (id SERIAL PRIMARY KEY, nombre TEXT UNIQUE NOT NULL, precio_predeterminado NUMERIC DEFAULT 0.0)''')
+    # 3. Tabla de Categorías
+    cur.execute('''CREATE TABLE IF NOT EXISTS categorias_gastos (id SERIAL PRIMARY KEY, nombre TEXT UNIQUE NOT NULL)''')
+    
+    # --- CORRECCIÓN: Agregar la columna de precio_predeterminado ANTES de insertar ---
+    try: 
+        cur.execute("ALTER TABLE categorias_gastos ADD COLUMN precio_predeterminado NUMERIC DEFAULT 0.0;")
+    except Exception: 
+        pass # Si la columna ya existe, simplemente continúa
     
     # Insertar admin por defecto
     cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT DO NOTHING")
@@ -35,10 +41,7 @@ def inicializar_tablas():
     for cat in categorias_base:
         cur.execute("INSERT INTO categorias_gastos (nombre, precio_predeterminado) VALUES (%s, 0.0) ON CONFLICT DO NOTHING", (cat,))
     
-    # Actualización segura de columnas (Para la tabla gastos y la nueva columna en categorías)
-    try: cur.execute("ALTER TABLE categorias_gastos ADD COLUMN precio_predeterminado NUMERIC DEFAULT 0.0;")
-    except Exception: pass
-
+    # Actualización segura de columnas adicionales en Gastos
     columnas_extra_gastos = [("kilometraje", "INTEGER"), ("aplica_concepto", "TEXT"), ("concepto", "TEXT"), ("detalle", "TEXT"), ("tipo_gasto", "TEXT")]
     for col, tipo in columnas_extra_gastos:
         try: cur.execute(f"ALTER TABLE gastos ADD COLUMN {col} {tipo};")
