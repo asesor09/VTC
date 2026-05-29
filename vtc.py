@@ -107,7 +107,7 @@ if menu == "🏠 Inicio":
     st.markdown("---")
     st.subheader("📊 Gastos por Vehículo y Fechas")
     
-    # Recuperamos la información uniendo gastos y vehículos para tener la placa
+    # Recuperamos la información uniendo gastos y vehículos
     df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.monto FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
     conn.close()
     
@@ -116,19 +116,15 @@ if menu == "🏠 Inicio":
         
         with col1:
             st.markdown("#### Gastos por Carro")
-            # Agrupamos la sumatoria de gastos por cada placa
             gastos_carro = df_inicio.groupby('placa')['monto'].sum().reset_index()
             gastos_carro = gastos_carro.sort_values('monto', ascending=False)
-            
             st.dataframe(gastos_carro, use_container_width=True)
             st.bar_chart(data=gastos_carro.set_index('placa'))
             
         with col2:
             st.markdown("#### Gastos por Fechas")
-            # Agrupamos la sumatoria de gastos por fecha
             df_inicio['fecha'] = pd.to_datetime(df_inicio['fecha']).dt.date
             gastos_fecha = df_inicio.groupby('fecha')['monto'].sum().reset_index()
-            
             st.dataframe(gastos_fecha, use_container_width=True)
             st.line_chart(data=gastos_fecha.set_index('fecha'))
     else:
@@ -180,6 +176,21 @@ elif menu == "💸 Registro de Gastos":
     conn = conectar_db()
     v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
     
+    # Extraer categorías existentes de la base de datos para que el sistema "aprenda"
+    try:
+        cat_data = pd.read_sql("SELECT DISTINCT tipo_gasto FROM gastos WHERE tipo_gasto IS NOT NULL", conn)
+        categorias_existentes = cat_data['tipo_gasto'].dropna().tolist()
+    except Exception:
+        categorias_existentes = []
+        
+    categorias_base = ["Combustible", "Peaje", "Mantenimiento", "Seguro", "Otros"]
+    
+    # Unir las listas y eliminar duplicados
+    lista_categorias = list(set(categorias_base + categorias_existentes))
+    lista_categorias.sort()
+    # Agregar la opción de crear una nueva al final
+    lista_categorias.append("➕ Agregar nueva...")
+    
     if not v_data.empty:
         with st.form("form_gasto"):
             st.subheader("Registrar Nuevo Gasto")
@@ -187,7 +198,15 @@ elif menu == "💸 Registro de Gastos":
             with c1:
                 v_sel = st.selectbox("Vehículo", v_data['placa'])
                 v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-                tipo_g = st.selectbox("Categoría Principal", ["Combustible", "Peaje", "Mantenimiento", "Seguro", "Otros"])
+                
+                # --- SISTEMA DINÁMICO DE CATEGORÍAS ---
+                tipo_g_sel = st.selectbox("Categoría Principal", lista_categorias)
+                if tipo_g_sel == "➕ Agregar nueva...":
+                    tipo_g = st.text_input("Escribe la nueva categoría principal")
+                else:
+                    tipo_g = tipo_g_sel
+                # --------------------------------------
+                
                 monto = st.number_input("Monto ($)", min_value=0.0)
                 kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
                 
@@ -202,6 +221,10 @@ elif menu == "💸 Registro de Gastos":
             detalle = st.text_area("Detalles adicionales")
             
             if st.form_submit_button("Guardar Gasto"):
+                # Evitar que se guarde una categoría en blanco
+                if tipo_g_sel == "➕ Agregar nueva..." and tipo_g.strip() == "":
+                    tipo_g = "Otros"
+                    
                 cur = conn.cursor()
                 cur.execute("""
                     INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto) 
