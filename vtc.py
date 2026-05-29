@@ -27,11 +27,11 @@ def inicializar_tablas():
     # 3. Tabla de Categorías
     cur.execute('''CREATE TABLE IF NOT EXISTS categorias_gastos (id SERIAL PRIMARY KEY, nombre TEXT UNIQUE NOT NULL)''')
     
-    # --- CORRECCIÓN: Agregar la columna de precio_predeterminado ANTES de insertar ---
+    # Agregar la columna de precio_predeterminado ANTES de insertar
     try: 
         cur.execute("ALTER TABLE categorias_gastos ADD COLUMN precio_predeterminado NUMERIC DEFAULT 0.0;")
     except Exception: 
-        pass # Si la columna ya existe, simplemente continúa
+        pass 
     
     # Insertar admin por defecto
     cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT DO NOTHING")
@@ -93,18 +93,24 @@ if not st.session_state['logged_in']:
         except Exception as e:
             st.sidebar.error(f"Error de conexión: {e}")
     st.title("🚐 Sistema de Gestión de Transporte")
-    st.warning("Por favor, ingrese sus credenciales en la barra lateral.")
+    st.info("👋 Bienvenido. Por favor, ingrese sus credenciales en la barra lateral para acceder al sistema.")
     st.stop()
 
-# --- MENÚ ---
-st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.update({'logged_in': False, 'u_rol': None}))
-st.title("🚐 Panel de Control - Acceso Global")
+# --- MENÚ Y BOTÓN DE CERRAR ---
+st.sidebar.title("🚐 Panel de Control")
 
 opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "🏷️ Categorías", "💸 Registro de Gastos", "🛠️ Mantenimientos", "🔒 Config. Alertas"]
 if st.session_state.u_rol == "admin":
     opciones_menu.append("⚙️ Usuarios")
 
 menu = st.sidebar.radio("Navegación", opciones_menu)
+
+# Botón visible y grande para cerrar el sistema
+st.sidebar.markdown("---")
+if st.sidebar.button("🚪 Cerrar Sistema (Salir)", use_container_width=True, type="primary"):
+    st.session_state['logged_in'] = False
+    st.session_state['u_rol'] = None
+    st.rerun()
 
 # --- 🏠 INICIO (CON FILTROS Y EXCEL) ---
 if menu == "🏠 Inicio":
@@ -117,7 +123,7 @@ if menu == "🏠 Inicio":
     
     c1, c2, c3 = st.columns(3)
     c1.metric("Vehículos en la Flota", v)
-    c2.metric("Total Inversión (Gastos)", f"${g:,.2f}")
+    c2.metric("Total Inversión (Gastos)", f"€{g:,.2f}") # Cambiado a Euros
     c3.metric("Mantenimientos Pendientes", m)
     
     st.markdown("---")
@@ -144,7 +150,7 @@ if menu == "🏠 Inicio":
         
         st.markdown("---")
         if not df_filtrado.empty:
-            st.metric("Total Gastos (Según filtros aplicados)", f"${df_filtrado['monto'].sum():,.2f}")
+            st.metric("Total Gastos (Según filtros aplicados)", f"€{df_filtrado['monto'].sum():,.2f}") # Cambiado a Euros
             
             col1, col2 = st.columns(2)
             with col1:
@@ -208,7 +214,7 @@ elif menu == "🚚 Gestión de Vehículos":
         st.dataframe(pd.read_sql("SELECT placa, marca, modelo, tipo, conductor, km_actual FROM vehiculos", conn), use_container_width=True)
         conn.close()
 
-# --- 🏷️ CATEGORÍAS (AHORA CON OPCIÓN DE EDITAR PRECIOS) ---
+# --- 🏷️ CATEGORÍAS (AHORA EN EUROS) ---
 elif menu == "🏷️ Categorías":
     st.subheader("Gestión de Categorías de Gastos")
     conn = conectar_db()
@@ -219,7 +225,8 @@ elif menu == "🏷️ Categorías":
         with st.form("form_nueva_cat"):
             c1, c2 = st.columns(2)
             nueva_cat = c1.text_input("Nombre de la categoría")
-            precio_base = c2.number_input("Precio predeterminado ($)", min_value=0.0, value=0.0, step=100.0)
+            # Cambiado a Euros (€)
+            precio_base = c2.number_input("Precio predeterminado (€)", min_value=0.0, value=0.0, step=100.0)
             if st.form_submit_button("Guardar Categoría"):
                 if nueva_cat.strip() != "":
                     cur = conn.cursor()
@@ -239,7 +246,8 @@ elif menu == "🏷️ Categorías":
             
             with st.form("form_edit_cat"):
                 n_nom_cat = st.text_input("Nombre", value=datos_cat['nombre'])
-                n_precio_cat = st.number_input("Precio predeterminado ($)", min_value=0.0, value=float(datos_cat['precio_predeterminado']), step=100.0)
+                # Cambiado a Euros (€)
+                n_precio_cat = st.number_input("Precio predeterminado (€)", min_value=0.0, value=float(datos_cat['precio_predeterminado']), step=100.0)
                 if st.form_submit_button("Actualizar Categoría"):
                     cur = conn.cursor()
                     try:
@@ -256,12 +264,11 @@ elif menu == "🏷️ Categorías":
         
     conn.close()
 
-# --- 💸 GASTOS (REGISTRO DINÁMICO DE PRECIOS Y EDICIÓN) ---
+# --- 💸 GASTOS (REGISTRO DINÁMICO DE PRECIOS Y EDICIÓN EN EUROS) ---
 elif menu == "💸 Registro de Gastos":
     conn = conectar_db()
     v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
     
-    # Extraemos categorías y sus precios en un diccionario para uso rápido
     cat_data = pd.read_sql("SELECT nombre, precio_predeterminado FROM categorias_gastos ORDER BY nombre", conn)
     cat_dict = dict(zip(cat_data['nombre'], cat_data['precio_predeterminado']))
     lista_categorias = list(cat_dict.keys())
@@ -269,7 +276,7 @@ elif menu == "💸 Registro de Gastos":
     if not v_data.empty:
         t_reg_gasto, t_edit_gasto, t_ver_gasto = st.tabs(["➕ Registrar Gasto", "✏️ Editar Gasto", "🔍 Historial"])
         
-        # PESTAÑA 1: REGISTRAR (Sin st.form para que el precio cambie dinámicamente)
+        # PESTAÑA 1: REGISTRAR 
         with t_reg_gasto:
             st.subheader("Registrar Nuevo Gasto")
             c1, c2 = st.columns(2)
@@ -278,10 +285,10 @@ elif menu == "💸 Registro de Gastos":
                 v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
                 
                 tipo_g = st.selectbox("Categoría Principal", lista_categorias)
-                # Al cambiar la categoría, se actualiza el monto por defecto automáticamente
                 precio_defecto = float(cat_dict.get(tipo_g, 0.0))
                 
-                monto = st.number_input("Monto ($)", min_value=0.0, value=precio_defecto, step=100.0)
+                # Cambiado a Euros (€)
+                monto = st.number_input("Monto (€)", min_value=0.0, value=precio_defecto, step=100.0)
                 kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
             with c2:
                 destino = st.text_input("Destino / Institución")
@@ -301,7 +308,8 @@ elif menu == "💸 Registro de Gastos":
             df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
             
             if not df_edit.empty:
-                df_edit['display'] = df_edit['fecha'].astype(str) + " | Vehículo: " + df_edit['placa'] + " | " + df_edit['tipo_gasto'] + " | $" + df_edit['monto'].astype(str)
+                # Cambiado a Euros (€) en la previsualización
+                df_edit['display'] = df_edit['fecha'].astype(str) + " | Vehículo: " + df_edit['placa'] + " | " + df_edit['tipo_gasto'] + " | €" + df_edit['monto'].astype(str)
                 sel_gasto = st.selectbox("Seleccione el gasto a editar", df_edit['display'])
                 
                 if sel_gasto:
@@ -317,7 +325,8 @@ elif menu == "💸 Registro de Gastos":
                             idx_cat = lista_categorias.index(g_data['tipo_gasto']) if g_data['tipo_gasto'] in lista_categorias else 0
                             n_tipo_g = st.selectbox("Categoría Principal", lista_categorias, index=idx_cat)
                             
-                            n_monto = st.number_input("Monto ($)", min_value=0.0, value=float(g_data['monto']))
+                            # Cambiado a Euros (€)
+                            n_monto = st.number_input("Monto (€)", min_value=0.0, value=float(g_data['monto']))
                             val_km = int(g_data['kilometraje']) if pd.notna(g_data['kilometraje']) else 0
                             n_km = st.number_input("Kilometraje", min_value=0, value=val_km)
                         
