@@ -138,26 +138,9 @@ try:
 except Exception as e:
     st.sidebar.error(f"Error de conexión: {e}")
 
-st.title("🚐 Panel de Control - Acceso Global")
-menu = st.sidebar.radio("Navegación", ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos", "🛠️ Mantenimientos", "📊 Reportes Avanzados"])
 
-# --- 🏠 INICIO ---
-if menu == "🏠 Inicio":
-    st.subheader("Resumen y Análisis General")
-    conn = conectar_db()
     
-    # Métricas principales
-    v = pd.read_sql("SELECT COUNT(*) FROM vehiculos", conn).iloc[0,0]
-    g = pd.read_sql("SELECT SUM(monto) FROM gastos", conn).iloc[0,0] or 0
-    m = pd.read_sql("SELECT COUNT(*) FROM mantenimientos WHERE estado='Pendiente'", conn).iloc[0,0]
     
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Vehículos en la Flota", v)
-    c2.metric("Total Inversión (Gastos)", f"${g:,.2f}")
-    c3.metric("Mantenimientos Pendientes", m)
-    
-    st.markdown("---")
-    st.subheader("📊 Gastos por Vehículo y Fechas")
     
     # Recuperamos la información uniendo gastos y vehículos
     df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.monto FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
