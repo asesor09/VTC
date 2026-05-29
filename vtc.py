@@ -11,9 +11,11 @@ def conectar_db():
 
 def inicializar_tablas():
     conn = conectar_db()
+    # autocommit=True evita que un error deshaga las tablas que ya se crearon
+    conn.autocommit = True 
     cur = conn.cursor()
     
-    # Crear tabla de vehículos si no existe
+    # 1. Crear tabla de vehículos si no existe
     cur.execute('''
         CREATE TABLE IF NOT EXISTS vehiculos (
             id SERIAL PRIMARY KEY,
@@ -26,7 +28,7 @@ def inicializar_tablas():
         )
     ''')
     
-    # Crear tabla de gastos (ahora con los nuevos campos por defecto)
+    # 2. Crear tabla de gastos
     cur.execute('''
         CREATE TABLE IF NOT EXISTS gastos (
             id SERIAL PRIMARY KEY,
@@ -42,18 +44,22 @@ def inicializar_tablas():
         )
     ''')
     
-    # Bloque de seguridad: Intentar agregar las nuevas columnas si la tabla ya existía de antes
+    # 3. Intentar agregar columnas de forma independiente por si es una base antigua
     try:
         cur.execute("ALTER TABLE gastos ADD COLUMN kilometraje INTEGER;")
-        cur.execute("ALTER TABLE gastos ADD COLUMN aplica_concepto TEXT;")
-        cur.execute("ALTER TABLE gastos ADD COLUMN concepto TEXT;")
-    except psycopg2.errors.DuplicateColumn:
-        # Las columnas ya existen, se ignora el error
-        conn.rollback()
-    except Exception as e:
-        conn.rollback()
+    except Exception:
+        pass
         
-    conn.commit()
+    try:
+        cur.execute("ALTER TABLE gastos ADD COLUMN aplica_concepto TEXT;")
+    except Exception:
+        pass
+        
+    try:
+        cur.execute("ALTER TABLE gastos ADD COLUMN concepto TEXT;")
+    except Exception:
+        pass
+        
     conn.close()
 
 # --- CONFIGURACIÓN DE LA INTERFAZ ---
@@ -71,7 +77,7 @@ if password != "Jacobo2026":
 try:
     inicializar_tablas()
 except Exception as e:
-    st.sidebar.error(f"Error de conexión a la base de datos: {e}")
+    st.sidebar.error(f"Error al inicializar la base de datos: {e}")
 
 st.title("🚐 Panel de Control - Acceso Global")
 menu = st.sidebar.radio("Navegación", ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos"])
@@ -162,20 +168,3 @@ elif menu == "💸 Registro de Gastos":
                 
                 # Actualizar el kilometraje del vehículo si el reportado en el gasto es mayor
                 cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
-                
-                conn.commit(); st.success("Gasto guardado correctamente"); st.rerun()
-        
-        st.markdown("---")
-        st.subheader("Historial de Gastos")
-        df_g = pd.read_sql("SELECT g.*, v.placa FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
-        conn.close()
-        
-        if not df_g.empty:
-            df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
-            mes_sel = st.selectbox("Ver Mes", sorted(df_g['mes'].unique(), reverse=True))
-            
-            # Se muestran las nuevas columnas en el resumen final
-            columnas_mostrar = ['fecha', 'placa', 'monto', 'kilometraje', 'aplica_concepto', 'concepto', 'institucion_destino']
-            st.dataframe(df_g[df_g['mes'] == mes_sel][columnas_mostrar], use_container_width=True)
-    else:
-        st.info("No hay vehículos registrados. Ve a 'Gestión de Vehículos' para agregar uno primero.")
