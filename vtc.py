@@ -231,7 +231,7 @@ elif menu == "🏷️ Categorías":
         
     conn.close()
 
-# --- 💸 GASTOS ---
+# --- 💸 GASTOS (AHORA CON PESTAÑA PARA EDITAR) ---
 elif menu == "💸 Registro de Gastos":
     conn = conectar_db()
     v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
@@ -239,100 +239,83 @@ elif menu == "💸 Registro de Gastos":
     lista_categorias = cat_data['nombre'].tolist()
     
     if not v_data.empty:
-        with st.form("form_gasto"):
-            st.subheader("Registrar Nuevo Gasto")
-            c1, c2 = st.columns(2)
-            with c1:
-                v_sel = st.selectbox("Vehículo", v_data['placa'])
-                v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-                tipo_g = st.selectbox("Categoría Principal", lista_categorias)
-                monto = st.number_input("Monto ($)", min_value=0.0)
-                kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
-            with c2:
-                destino = st.text_input("Destino / Institución")
-                fecha = st.date_input("Fecha", datetime.now().date())
-                aplica_concepto = st.radio("¿Ingresar concepto específico?", ["No", "Sí"])
-                concepto_adicional = st.text_input("Escribe el concepto") if aplica_concepto == "Sí" else ""
-            detalle = st.text_area("Detalles adicionales")
-            
-            if st.form_submit_button("Guardar Gasto"):
-                cur = conn.cursor()
-                cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional))
-                cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
-                conn.commit(); st.success("✅ Guardado"); st.rerun()
+        t_reg_gasto, t_edit_gasto, t_ver_gasto = st.tabs(["➕ Registrar Gasto", "✏️ Editar Gasto", "🔍 Historial"])
         
-        df_g = pd.read_sql("SELECT g.*, v.placa FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
-        if not df_g.empty:
-            df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
-            mes_sel = st.selectbox("Filtrar por Mes", sorted(df_g['mes'].unique(), reverse=True))
-            st.dataframe(df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'kilometraje', 'concepto', 'institucion_destino']], use_container_width=True)
-    else: st.warning("⚠️ Registra un vehículo primero.")
-    conn.close()
-
-# --- 🛠️ MANTENIMIENTOS ---
-elif menu == "🛠️ Mantenimientos":
-    conn = conectar_db(); v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
-    if not v_data.empty:
-        c1, c2 = st.columns(2)
-        with c1:
-            with st.form("form_mant"):
-                v_sel = st.selectbox("Vehículo", v_data['placa'])
-                v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-                desc = st.text_area("Descripción")
-                km_prox = st.number_input("Kilometraje para próximo cambio", min_value=0)
-                if st.form_submit_button("Programar"):
+        # PESTAÑA 1: REGISTRAR
+        with t_reg_gasto:
+            with st.form("form_gasto"):
+                st.subheader("Registrar Nuevo Gasto")
+                c1, c2 = st.columns(2)
+                with c1:
+                    v_sel = st.selectbox("Vehículo", v_data['placa'])
+                    v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
+                    tipo_g = st.selectbox("Categoría Principal", lista_categorias)
+                    monto = st.number_input("Monto ($)", min_value=0.0)
+                    kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
+                with c2:
+                    destino = st.text_input("Destino / Institución")
+                    fecha = st.date_input("Fecha", datetime.now().date())
+                    aplica_concepto = st.radio("¿Ingresar concepto específico?", ["No", "Sí"])
+                    concepto_adicional = st.text_input("Escribe el concepto") if aplica_concepto == "Sí" else ""
+                detalle = st.text_area("Detalles adicionales")
+                
+                if st.form_submit_button("Guardar Gasto"):
                     cur = conn.cursor()
-                    cur.execute("INSERT INTO mantenimientos (vehiculo_id, descripcion, km_proximo_cambio, estado) VALUES (%s, %s, %s, 'Pendiente')", (v_id, desc, km_prox))
-                    conn.commit(); st.success("✅ Programado"); st.rerun()
-        with c2:
-            st.dataframe(v_data[['placa', 'km_actual']], use_container_width=True)
+                    cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional))
+                    cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
+                    conn.commit(); st.success("✅ Guardado"); st.rerun()
+        
+        # PESTAÑA 2: EDITAR (NUEVO)
+        with t_edit_gasto:
+            df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
             
-        df_m = pd.read_sql("SELECT m.id, v.placa, m.descripcion, m.km_proximo_cambio, m.estado FROM mantenimientos m JOIN vehiculos v ON m.vehiculo_id = v.id", conn)
-        if not df_m.empty:
-            pendientes = df_m[df_m['estado'] == 'Pendiente']
-            if not pendientes.empty:
-                st.dataframe(pendientes[['placa', 'descripcion', 'km_proximo_cambio']], use_container_width=True)
-                with st.form("actualizar_mant"):
-                    mant_id = st.selectbox("ID a cerrar", pendientes['id'])
-                    if st.form_submit_button("Marcar como Realizado"):
-                        cur = conn.cursor(); cur.execute("UPDATE mantenimientos SET estado = 'Realizado' WHERE id = %s", (int(mant_id),))
-                        conn.commit(); st.success("✅ Cerrado"); st.rerun()
-    conn.close()
-
-# --- ⚙️ USUARIOS ---
-elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
-    st.title("⚙️ Usuarios")
-    conn = conectar_db()
-    with st.form("fu"):
-        nom = st.text_input("Nombre"); usr = st.text_input("Usuario"); clv = st.text_input("Clave")
-        rol = st.selectbox("Rol", ["vendedor", "admin"])
-        if st.form_submit_button("👤 Crear"):
-            if usr.strip() == "":
-                st.warning("El usuario no puede estar vacío.")
+            if not df_edit.empty:
+                # Crear un texto legible para buscar el gasto a editar
+                df_edit['display'] = df_edit['fecha'].astype(str) + " | Vehículo: " + df_edit['placa'] + " | " + df_edit['tipo_gasto'] + " | $" + df_edit['monto'].astype(str)
+                sel_gasto = st.selectbox("Seleccione el gasto a editar (Ordenados por fecha más reciente)", df_edit['display'])
+                
+                if sel_gasto:
+                    g_data = df_edit[df_edit['display'] == sel_gasto].iloc[0]
+                    with st.form("form_edit_gasto"):
+                        st.subheader("Actualizar Datos del Gasto")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            idx_vehiculo = int(v_data[v_data['placa'] == g_data['placa']].index[0])
+                            n_v_sel = st.selectbox("Vehículo", v_data['placa'], index=idx_vehiculo)
+                            n_v_id = int(v_data[v_data['placa'] == n_v_sel]['id'].values[0])
+                            
+                            idx_cat = lista_categorias.index(g_data['tipo_gasto']) if g_data['tipo_gasto'] in lista_categorias else 0
+                            n_tipo_g = st.selectbox("Categoría Principal", lista_categorias, index=idx_cat)
+                            
+                            n_monto = st.number_input("Monto ($)", min_value=0.0, value=float(g_data['monto']))
+                            val_km = int(g_data['kilometraje']) if pd.notna(g_data['kilometraje']) else 0
+                            n_km = st.number_input("Kilometraje", min_value=0, value=val_km)
+                        
+                        with c2:
+                            val_destino = "" if pd.isna(g_data['institucion_destino']) else str(g_data['institucion_destino'])
+                            n_destino = st.text_input("Destino / Institución", value=val_destino)
+                            n_fecha = st.date_input("Fecha", pd.to_datetime(g_data['fecha']).date())
+                            
+                            n_aplica = st.radio("¿Ingresar concepto específico? (Edición)", ["No", "Sí"], index=1 if g_data['aplica_concepto'] == "Sí" else 0)
+                            val_concepto = "" if pd.isna(g_data['concepto']) else str(g_data['concepto'])
+                            n_concepto = st.text_input("Escribe el concepto", value=val_concepto) if n_aplica == "Sí" else ""
+                            
+                        val_detalle = "" if pd.isna(g_data['detalle']) else str(g_data['detalle'])
+                        n_detalle = st.text_area("Detalles adicionales", value=val_detalle)
+                        
+                        if st.form_submit_button("Actualizar Gasto"):
+                            cur = conn.cursor()
+                            cur.execute("UPDATE gastos SET vehiculo_id=%s, tipo_gasto=%s, monto=%s, institucion_destino=%s, fecha=%s, detalle=%s, kilometraje=%s, aplica_concepto=%s, concepto=%s WHERE id=%s", 
+                                        (n_v_id, n_tipo_g, n_monto, n_destino, n_fecha, n_detalle, n_km, n_aplica, n_concepto, int(g_data['id'])))
+                            cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (n_km, n_v_id))
+                            conn.commit(); st.success("✅ Gasto actualizado correctamente"); st.rerun()
             else:
-                cur = conn.cursor()
-                try:
-                    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES (%s,%s,%s,%s)", (nom, usr, hashlib.sha256(clv.encode()).hexdigest(), rol))
-                    conn.commit(); st.success("✅ Usuario creado"); st.rerun()
-                except Exception as e:
-                    conn.rollback()
-                    st.error("⚠️ Error: Este nombre de usuario ya existe en el sistema.")
-    
-    st.dataframe(pd.read_sql("SELECT nombre, usuario, rol FROM usuarios", conn), use_container_width=True)
-    conn.close()
-
-# --- 🔒 CONFIG. ALERTAS ---
-elif menu == "🔒 Config. Alertas":
-    st.title("🔒 Configuración Segura")
-    conn = conectar_db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM configuracion WHERE id = 1"); act = cur.fetchone()
-    with st.form("f_conf"):
-        rem = st.text_input("Gmail Remitente", value=act[1] if act else "")
-        cla = st.text_input("Clave Gmail (16 letras)", type="password", value=act[2] if act else "")
-        des = st.text_input("Correo Destino", value=act[3] if act else "")
-        if st.form_submit_button("💾 Guardar"):
-            cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino)
-                           VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''', (rem, cla, des))
-            conn.commit(); st.success("✅ Guardado."); st.rerun()
-    conn.close()
+                st.info("No hay gastos registrados en el sistema para editar.")
+                
+        # PESTAÑA 3: VER / HISTORIAL
+        with t_ver_gasto:
+            df_g = pd.read_sql("SELECT g.*, v.placa FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
+            if not df_g.empty:
+                df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
+                mes_sel = st.selectbox("Filtrar historial por Mes", sorted(df_g['mes'].unique(), reverse=True))
+                st.dataframe(df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'kilometraje', 'concepto', 'institucion_destino']], use_container_
