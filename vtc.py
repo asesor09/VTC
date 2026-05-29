@@ -153,27 +153,6 @@ elif menu == "💸 Gastos":
                 cur.execute("UPDATE gastos SET vehiculo_id=%s, tipo_gasto=%s, monto=%s, fecha=%s, detalle=%s WHERE id=%s", (int(v_id_n), r['tipo_gasto'], r['monto'], r['fecha'], r['detalle'], int(r['id'])))
             conn.commit(); st.rerun()
 
-# --- VENTAS (CON EDICIÓN) ---
-elif menu == "💰 Ventas":
-    st.title("💰 Ventas")
-    tab1, tab2 = st.tabs(["💰 Nuevo", "✏️ Editar/Borrar"])
-    with tab1:
-        with st.form("fv"):
-            v_sel = st.selectbox("Vehículo", v_query['placa'])
-            cli, val, fec, dsc = st.text_input("Cliente"), st.number_input("Valor"), st.date_input("Fecha"), st.text_input("Nota")
-            if st.form_submit_button("💰 Registrar"):
-                v_id = v_query[v_query['placa'] == v_sel]['id'].values[0]
-                cur = conn.cursor(); cur.execute("INSERT INTO ventas (vehiculo_id, cliente, valor_viaje, fecha, descripcion) VALUES (%s,%s,%s,%s,%s)", (int(v_id), cli, val, fec, dsc)); conn.commit(); st.rerun()
-    with tab2:
-        df_ve = pd.read_sql("SELECT s.id, s.fecha, v.placa, s.cliente, s.valor_viaje, s.descripcion FROM ventas s JOIN vehiculos v ON s.vehiculo_id = v.id ORDER BY s.fecha DESC", conn)
-        ed_v = st.data_editor(df_ve, column_config={"id": None, "placa": st.column_config.SelectboxColumn("Vehículo", options=v_query['placa'].tolist())}, hide_index=True, use_container_width=True, num_rows="dynamic")
-        if st.button("💾 Guardar Cambios Ventas"):
-            cur = conn.cursor(); ids_vivos = ed_v['id'].tolist()
-            cur.execute(f"DELETE FROM ventas WHERE id NOT IN ({','.join(map(str, ids_vivos)) if ids_vivos else '0'})")
-            for _, r in ed_v.iterrows():
-                v_id_n = v_query[v_query['placa'] == r['placa']]['id'].values[0]
-                cur.execute("UPDATE ventas SET vehiculo_id=%s, cliente=%s, valor_viaje=%s, fecha=%s, descripcion=%s WHERE id=%s", (int(v_id_n), r['cliente'], r['valor_viaje'], r['fecha'], r['descripcion'], int(r['id'])))
-            conn.commit(); st.rerun()
 
 # --- HOJA DE VIDA (RESTAURADO COMPLETO) ---
 elif menu == "📑 Hoja de Vida":
