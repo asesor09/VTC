@@ -316,4 +316,31 @@ elif menu == "📊 Reportes Avanzados":
             st.bar_chart(data=gastos_vehiculo, x='placa', y='monto')
     else:
         st.info("No hay suficientes datos registrados para generar los reportes.")
+
+# --- USUARIOS ---
+elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
+    st.title("⚙️ Usuarios")
+    with st.form("fu"):
+        nom, usr, clv, rol = st.text_input("Nombre"), st.text_input("Usuario"), st.text_input("Clave"), st.selectbox("Rol", ["vendedor", "admin"])
+        if st.form_submit_button("👤 Crear"):
+            cur = conn.cursor(); cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES (%s,%s,%s,%s)", (nom, usr, clv, rol)); conn.commit(); st.rerun()
+    df_u = pd.read_sql("SELECT nombre, usuario, rol FROM usuarios", conn)
+    st.dataframe(df_u, use_container_width=True)
+
+# --- CONFIGURACIÓN ---
+elif menu == "🔒 Config. Alertas":
+    st.title("🔒 Configuración Segura")
+    cur = conn.cursor(); cur.execute("SELECT * FROM configuracion WHERE id = 1"); act = cur.fetchone()
+    with st.form("f_conf"):
+        rem = st.text_input("Gmail Remitente", value=act[1] if act else "")
+        cla = st.text_input("Clave Gmail (16 letras)", type="password", value=act[2] if act else "")
+        des = st.text_input("Correo Destino", value=act[3] if act else "")
+        if st.form_submit_button("💾 Guardar"):
+            cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino)
+                           VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET 
+                           email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''',
+                        (rem, cla, des))
+            conn.commit(); st.success("Guardado."); st.rerun()
+
+conn.close()
         
