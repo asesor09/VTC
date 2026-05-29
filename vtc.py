@@ -91,15 +91,48 @@ menu = st.sidebar.radio("Navegación", ["🏠 Inicio", "🚚 Gestión de Vehícu
 
 # --- 🏠 INICIO ---
 if menu == "🏠 Inicio":
+    st.subheader("Resumen y Análisis General")
     conn = conectar_db()
+    
+    # Métricas principales
     v = pd.read_sql("SELECT COUNT(*) FROM vehiculos", conn).iloc[0,0]
     g = pd.read_sql("SELECT SUM(monto) FROM gastos", conn).iloc[0,0] or 0
     m = pd.read_sql("SELECT COUNT(*) FROM mantenimientos WHERE estado='Pendiente'", conn).iloc[0,0]
-    conn.close()
+    
     c1, c2, c3 = st.columns(3)
     c1.metric("Vehículos en la Flota", v)
     c2.metric("Total Inversión (Gastos)", f"${g:,.2f}")
     c3.metric("Mantenimientos Pendientes", m)
+    
+    st.markdown("---")
+    st.subheader("📊 Gastos por Vehículo y Fechas")
+    
+    # Recuperamos la información uniendo gastos y vehículos para tener la placa
+    df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.monto FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
+    conn.close()
+    
+    if not df_inicio.empty:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### Gastos por Carro")
+            # Agrupamos la sumatoria de gastos por cada placa
+            gastos_carro = df_inicio.groupby('placa')['monto'].sum().reset_index()
+            gastos_carro = gastos_carro.sort_values('monto', ascending=False)
+            
+            st.dataframe(gastos_carro, use_container_width=True)
+            st.bar_chart(data=gastos_carro.set_index('placa'))
+            
+        with col2:
+            st.markdown("#### Gastos por Fechas")
+            # Agrupamos la sumatoria de gastos por fecha
+            df_inicio['fecha'] = pd.to_datetime(df_inicio['fecha']).dt.date
+            gastos_fecha = df_inicio.groupby('fecha')['monto'].sum().reset_index()
+            
+            st.dataframe(gastos_fecha, use_container_width=True)
+            st.line_chart(data=gastos_fecha.set_index('fecha'))
+    else:
+        st.info("Aún no hay registros de gastos para generar este análisis.")
 
 # --- 🚚 VEHÍCULOS ---
 elif menu == "🚚 Gestión de Vehículos":
