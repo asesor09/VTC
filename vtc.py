@@ -1,4 +1,3 @@
-
 import streamlit as st
 import psycopg2
 import pandas as pd
@@ -12,11 +11,10 @@ def conectar_db():
 
 def inicializar_tablas():
     conn = conectar_db()
-    # autocommit=True evita que un error deshaga las tablas que ya se crearon
     conn.autocommit = True 
     cur = conn.cursor()
     
-    # 1. Crear tabla de vehículos si no existe
+    # 1. Crear tabla de vehículos
     cur.execute('''
         CREATE TABLE IF NOT EXISTS vehiculos (
             id SERIAL PRIMARY KEY,
@@ -29,7 +27,7 @@ def inicializar_tablas():
         )
     ''')
     
-    # 2. Crear tabla de gastos
+    # 2. Crear tabla de gastos (con todos los campos originales y nuevos)
     cur.execute('''
         CREATE TABLE IF NOT EXISTS gastos (
             id SERIAL PRIMARY KEY,
@@ -45,28 +43,27 @@ def inicializar_tablas():
         )
     ''')
     
-    # 3. Intentar agregar columnas de forma independiente por si es una base antigua
-    try:
-        cur.execute("ALTER TABLE gastos ADD COLUMN kilometraje INTEGER;")
-    except Exception:
-        pass
-        
-    try:
-        cur.execute("ALTER TABLE gastos ADD COLUMN aplica_concepto TEXT;")
-    except Exception:
-        pass
-        
-    try:
-        cur.execute("ALTER TABLE gastos ADD COLUMN concepto TEXT;")
-    except Exception:
-        pass
-        
+    # 3. Bloque de seguridad para añadir columnas sin borrar nada
+    columnas_extra = [
+        ("kilometraje", "INTEGER"),
+        ("aplica_concepto", "TEXT"),
+        ("concepto", "TEXT"),
+        ("detalle", "TEXT"),
+        ("tipo_gasto", "TEXT")
+    ]
+    
+    for col, tipo in columnas_extra:
+        try:
+            cur.execute(f"ALTER TABLE gastos ADD COLUMN {col} {tipo};")
+        except Exception:
+            pass # Si la columna ya existe, simplemente continúa
+            
     conn.close()
 
 # --- CONFIGURACIÓN DE LA INTERFAZ ---
 st.set_page_config(page_title="Transporte Jacobo Pro", layout="wide", page_icon="🚐")
 
-# Seguridad para acceso global
+# Seguridad
 st.sidebar.title("🔐 Acceso")
 password = st.sidebar.text_input("Contraseña", type="password")
 if password != "Jacobo2026":
@@ -74,13 +71,14 @@ if password != "Jacobo2026":
     st.warning("Por favor, ingrese la contraseña en la barra lateral.")
     st.stop()
 
-# Inicializar tablas al entrar
+# Inicializar base de datos
 try:
     inicializar_tablas()
 except Exception as e:
-    st.sidebar.error(f"Error al inicializar la base de datos: {e}")
+    st.sidebar.error(f"Error de conexión: {e}")
 
 st.title("🚐 Panel de Control - Acceso Global")
+# Menú limpio, sin la ventana de ventas
 menu = st.sidebar.radio("Navegación", ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos"])
 
 # --- 🏠 INICIO ---
@@ -137,4 +135,58 @@ elif menu == "🚚 Gestión de Vehículos":
 # --- 💸 GASTOS ---
 elif menu == "💸 Registro de Gastos":
     conn = conectar_db()
-    v
+    v_data = pd.read_sql("SELECT id, placa FROM vehiculos", conn)
+    
+    if not v_data.empty:
+        with st.form("gasto_form"):
+            st.subheader("Registrar Nuevo Gasto")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                v_sel = st.selectbox("Vehículo", v_data['placa'])
+                v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
+                # Restaurado el campo original que te había quitado
+                tipo_g = st.selectbox("Categoría Principal", ["Combustible", "Peaje", "Mantenimiento", "Seguro", "Otros"])
+                monto = st.number_input("Monto ($)", min_value=0.0)
+                kilometraje = st.number_input("Kilometraje actual", min_value=0)
+                
+            with c2:
+                destino = st.text_input("Destino / Institución")
+                fecha = st.date_input("Fecha", datetime.now().date())
+                
+                # Nuevos campos solicitados: Selector Sí/No y el campo condicionado
+                aplica_concepto = st.radio("¿Ingresar un concepto específico?", ["No", "Sí"])
+                concepto_adicional = ""
+                if aplica_concepto == "Sí":
+                    concepto_adicional = st.text_input("Escribe el concepto")
+            
+            # Restaurado el campo de detalle
+            detalle = st.text_area("Detalles adicionales")
+            
+            if st.form_submit_button("Guardar Gasto"):
+                cur = conn.cursor()
+                # Insertando todos los campos requeridos
+                cur.execute("""
+                    INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional))
+                
+                # Actualizar kilometraje del vehículo si el ingresado es mayor
+                cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
+                
+                conn.commit(); st.success("✅ Gasto guardado correctamente"); st.rerun()
+        
+        st.markdown("---")
+        st.subheader("Historial de Gastos Mensual")
+        df_g = pd.read_sql("SELECT g.*, v.placa FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
+        conn.close()
+        
+        if not df_g.empty:
+            df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
+            mes_sel = st.selectbox("Ver Mes", sorted(df_g['mes'].unique(), reverse=True))
+            
+            df_mostrar = df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'kilometraje', 'aplica_concepto', 'concepto', 'institucion_destino', 'detalle']]
+            st.dataframe(df_mostrar, use_container_width=True)
+    else:
+        st.warning("⚠️ No hay vehículos registrados en la nube. Por favor, ve a la pestaña '🚚 Gestión de Vehículos' y registra al menos uno.")
+        conn.close()
