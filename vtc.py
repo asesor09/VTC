@@ -1,3 +1,4 @@
+
 import streamlit as st
 import psycopg2
 import pandas as pd
@@ -136,35 +137,4 @@ elif menu == "🚚 Gestión de Vehículos":
 # --- 💸 GASTOS ---
 elif menu == "💸 Registro de Gastos":
     conn = conectar_db()
-    v_data = pd.read_sql("SELECT id, placa FROM vehiculos", conn)
-    
-    if not v_data.empty:
-        with st.form("gasto"):
-            st.subheader("Registrar Nuevo Gasto")
-            v_sel = st.selectbox("Vehículo", v_data['placa'])
-            v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                monto = st.number_input("Monto ($)", min_value=0.0)
-                kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
-                inst = st.text_input("Institución")
-                fecha = st.date_input("Fecha")
-                
-            with c2:
-                aplica_concepto = st.radio("¿Relacionar a un concepto específico?", ["No", "Sí"])
-                concepto = ""
-                # Si marca "Sí", el campo de texto se habilita para que ingrese el concepto
-                if aplica_concepto == "Sí":
-                    concepto = st.text_input("Ingrese el concepto")
-            
-            if st.form_submit_button("Guardar Gasto"):
-                cur = conn.cursor()
-                # Insertar gasto con los nuevos campos
-                cur.execute("""
-                    INSERT INTO gastos (vehiculo_id, monto, institucion_destino, fecha, kilometraje, aplica_concepto, concepto) 
-                    VALUES (%s,%s,%s,%s,%s,%s,%s)
-                """, (v_id, monto, inst, fecha, kilometraje, aplica_concepto, concepto))
-                
-                # Actualizar el kilometraje del vehículo si el reportado en el gasto es mayor
-                cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
+    v
