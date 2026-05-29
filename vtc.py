@@ -20,22 +20,22 @@ def inicializar_tablas():
     cur.execute('''CREATE TABLE IF NOT EXISTS gastos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), tipo_gasto TEXT, monto NUMERIC, institucion_destino TEXT, fecha DATE, detalle TEXT, kilometraje INTEGER, aplica_concepto TEXT, concepto TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS mantenimientos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), descripcion TEXT, km_proximo_cambio INTEGER, estado TEXT DEFAULT 'Pendiente')''')
     
-    # 2. Tablas Faltantes Agregadas (Usuarios y Configuración)
+    # 2. Tablas de Usuarios y Configuración
     cur.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, clave TEXT, rol TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS configuracion (id SERIAL PRIMARY KEY, email_remitente TEXT, email_clave TEXT, email_destino TEXT)''')
     
     # 3. NUEVA TABLA: Categorías de Gastos
     cur.execute('''CREATE TABLE IF NOT EXISTS categorias_gastos (id SERIAL PRIMARY KEY, nombre TEXT UNIQUE NOT NULL)''')
     
-    # Insertar admin por defecto si no existe
+    # Insertar admin por defecto
     cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT DO NOTHING")
     
-    # Insertar categorías base por defecto si la tabla es nueva
+    # Categorías base por defecto
     categorias_base = ["Combustible", "Peaje", "Mantenimiento", "Seguro", "Otros"]
     for cat in categorias_base:
         cur.execute("INSERT INTO categorias_gastos (nombre) VALUES (%s) ON CONFLICT DO NOTHING", (cat,))
     
-    # Columnas extra para soportar todas las versiones de tu base de datos
+    # Actualización segura de columnas
     columnas_extra = [("kilometraje", "INTEGER"), ("aplica_concepto", "TEXT"), ("concepto", "TEXT"), ("detalle", "TEXT"), ("tipo_gasto", "TEXT")]
     for col, tipo in columnas_extra:
         try: cur.execute(f"ALTER TABLE gastos ADD COLUMN {col} {tipo};")
@@ -94,8 +94,7 @@ if not st.session_state['logged_in']:
 st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.update({'logged_in': False, 'u_rol': None}))
 st.title("🚐 Panel de Control - Acceso Global")
 
-# AÑADIDA LA VENTANA DE CATEGORÍAS AL MENÚ
-opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "💸 Registro de Gastos", "🛠️ Mantenimientos", "🏷️ Categorías", "📊 Reportes Avanzados", "🔒 Config. Alertas"]
+opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "🏷️ Categorías", "💸 Registro de Gastos", "🛠️ Mantenimientos", "🔒 Config. Alertas"]
 if st.session_state.u_rol == "admin":
     opciones_menu.append("⚙️ Usuarios")
 
@@ -194,7 +193,7 @@ elif menu == "🚚 Gestión de Vehículos":
         st.dataframe(pd.read_sql("SELECT placa, marca, modelo, tipo, conductor, km_actual FROM vehiculos", conn), use_container_width=True)
         conn.close()
 
-# --- 🏷️ CATEGORÍAS (NUEVA VENTANA SUGERIDA) ---
+# --- 🏷️ CATEGORÍAS ---
 elif menu == "🏷️ Categorías":
     st.subheader("Gestión de Categorías de Gastos")
     conn = conectar_db()
@@ -210,7 +209,9 @@ elif menu == "🏷️ Categorías":
                     try:
                         cur.execute("INSERT INTO categorias_gastos (nombre) VALUES (%s)", (nueva_cat.strip(),))
                         conn.commit(); st.success("✅ Agregada"); st.rerun()
-                    except:
+                    except Exception as e:
+                        # CORRECCIÓN: Rollback limpia la transacción fallida antes de continuar
+                        conn.rollback() 
                         st.error("Esta categoría ya existe.")
                 else:
                     st.warning("El campo no puede estar vacío.")
@@ -222,12 +223,10 @@ elif menu == "🏷️ Categorías":
         
     conn.close()
 
-# --- 💸 GASTOS (LIMPIO Y MEJORADO) ---
+# --- 💸 GASTOS ---
 elif menu == "💸 Registro de Gastos":
     conn = conectar_db()
     v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
-    
-    # Ahora lee directamente desde la nueva tabla (más rápido y sin errores)
     cat_data = pd.read_sql("SELECT nombre FROM categorias_gastos ORDER BY nombre", conn)
     lista_categorias = cat_data['nombre'].tolist()
     
@@ -238,7 +237,6 @@ elif menu == "💸 Registro de Gastos":
             with c1:
                 v_sel = st.selectbox("Vehículo", v_data['placa'])
                 v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-                # Selector mucho más limpio
                 tipo_g = st.selectbox("Categoría Principal", lista_categorias)
                 monto = st.number_input("Monto ($)", min_value=0.0)
                 kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
@@ -292,10 +290,6 @@ elif menu == "🛠️ Mantenimientos":
                         cur = conn.cursor(); cur.execute("UPDATE mantenimientos SET estado = 'Realizado' WHERE id = %s", (int(mant_id),))
                         conn.commit(); st.success("✅ Cerrado"); st.rerun()
     conn.close()
-
-# --- 📊 REPORTES AVANZADOS ---
-elif menu == "📊 Reportes Avanzados":
-    st.write("Dirígete a la pestaña de 'Inicio' para consultar y exportar a Excel todos los detalles y filtros de operaciones de manera interactiva.")
 
 # --- ⚙️ USUARIOS ---
 elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
