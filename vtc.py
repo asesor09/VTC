@@ -5,7 +5,7 @@ from datetime import datetime
 import hashlib
 
 # --- CONFIGURACIÓN DE CONEXIÓN GLOBAL (NEON) ---
-DB_URL = "postgresql://neondb_owner:npg_Hw6lhgzCrm0B@ep-winter-mud-aqkidkqi-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DB_URL = "postgresql://neondb_owner:npg_Hw6lhgzCrm0B@ep-winter-mud-aqkidkqi-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require&connect_timeout=10"
 
 def conectar_db():
     return psycopg2.connect(DB_URL)
@@ -20,11 +20,11 @@ def inicializar_tablas():
     cur.execute('''CREATE TABLE IF NOT EXISTS gastos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), tipo_gasto TEXT, monto NUMERIC, institucion_destino TEXT, fecha DATE, detalle TEXT, kilometraje INTEGER, aplica_concepto TEXT, concepto TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS mantenimientos (id SERIAL PRIMARY KEY, vehiculo_id INTEGER REFERENCES vehiculos(id), descripcion TEXT, km_proximo_cambio INTEGER, estado TEXT DEFAULT 'Pendiente')''')
     
-    # 2. Tablas Faltantes Agregadas (Usuarios y Configuración)
+    # 2. Tablas de Usuarios y Configuración
     cur.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, clave TEXT, rol TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS configuracion (id SERIAL PRIMARY KEY, email_remitente TEXT, email_clave TEXT, email_destino TEXT)''')
     
-    # Insertar admin por defecto si no existe la tabla
+    # Insertar admin por defecto si no existe
     cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT DO NOTHING")
     
     # Columnas extra para soportar todas las versiones
@@ -38,10 +38,14 @@ def inicializar_tablas():
 # --- CONFIGURACIÓN DE LA INTERFAZ ---
 st.set_page_config(page_title="Transporte Jacobo Pro", layout="wide", page_icon="🚐")
 
-try:
-    inicializar_tablas()
-except Exception as e:
-    st.error(f"Error de inicialización de tablas: {e}")
+# --- SISTEMA ANTI-ATASCOS ---
+if 'db_ready' not in st.session_state:
+    try:
+        inicializar_tablas()
+        st.session_state['db_ready'] = True
+    except Exception as e:
+        st.error(f"Error conectando a la base de datos. Detalle: {e}")
+        st.stop()
 
 # --- LOGIN ---
 if 'u_rol' not in st.session_state:
@@ -54,24 +58,26 @@ if not st.session_state['logged_in']:
     u = st.sidebar.text_input("Usuario")
     p = st.sidebar.text_input("Contraseña", type="password")
     if st.sidebar.button("Ingresar"):
-        conn = conectar_db(); cur = conn.cursor()
-        cur.execute("SELECT rol FROM usuarios WHERE usuario=%s AND clave=%s", (u, p))
-        resultado = cur.fetchone()
-        if resultado:
-            st.session_state['logged_in'] = True
-            st.session_state['u_rol'] = resultado[0]
-            conn.close(); st.rerun()
-        else:
-            # Fallback en caso de que la clave esté cifrada o sea la primera vez
-            cur.execute("SELECT rol FROM usuarios WHERE usuario=%s AND clave=%s", (u, hashlib.sha256(p.encode()).hexdigest()))
-            res_cifrado = cur.fetchone()
-            if res_cifrado:
+        try:
+            conn = conectar_db(); cur = conn.cursor()
+            cur.execute("SELECT rol FROM usuarios WHERE usuario=%s AND clave=%s", (u, p))
+            resultado = cur.fetchone()
+            if resultado:
                 st.session_state['logged_in'] = True
-                st.session_state['u_rol'] = res_cifrado[0]
+                st.session_state['u_rol'] = resultado[0]
                 conn.close(); st.rerun()
             else:
-                st.sidebar.error("Usuario o contraseña incorrectos")
-                conn.close()
+                cur.execute("SELECT rol FROM usuarios WHERE usuario=%s AND clave=%s", (u, hashlib.sha256(p.encode()).hexdigest()))
+                res_cifrado = cur.fetchone()
+                if res_cifrado:
+                    st.session_state['logged_in'] = True
+                    st.session_state['u_rol'] = res_cifrado[0]
+                    conn.close(); st.rerun()
+                else:
+                    st.sidebar.error("Usuario o contraseña incorrectos")
+                    conn.close()
+        except Exception as e:
+            st.sidebar.error(f"Error de conexión: {e}")
     st.title("🚐 Sistema de Gestión de Transporte")
     st.warning("Por favor, ingrese sus credenciales en la barra lateral.")
     st.stop()
@@ -86,10 +92,12 @@ if st.session_state.u_rol == "admin":
 
 menu = st.sidebar.radio("Navegación", opciones_menu)
 
-# --- 🏠 INICIO ---
+# --- 🏠 INICIO (CON FILTROS Y EXCEL) ---
 if menu == "🏠 Inicio":
     st.subheader("Resumen y Análisis General")
     conn = conectar_db()
+    
+    # Métricas Globales
     v = pd.read_sql("SELECT COUNT(*) FROM vehiculos", conn).iloc[0,0]
     g = pd.read_sql("SELECT SUM(monto) FROM gastos", conn).iloc[0,0] or 0
     m = pd.read_sql("SELECT COUNT(*) FROM mantenimientos WHERE estado='Pendiente'", conn).iloc[0,0]
@@ -100,25 +108,59 @@ if menu == "🏠 Inicio":
     c3.metric("Mantenimientos Pendientes", m)
     
     st.markdown("---")
-    st.subheader("📊 Gastos por Vehículo y Fechas")
-    df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.monto FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
+    st.subheader("📊 Análisis Interactivo de Gastos")
+    
+    # Extraer todos los detalles para los filtros
+    df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.tipo_gasto, g.concepto, g.monto, g.institucion_destino, g.detalle, g.kilometraje FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
     conn.close()
     
     if not df_inicio.empty:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("#### Gastos por Carro")
-            gastos_carro = df_inicio.groupby('placa')['monto'].sum().reset_index().sort_values('monto', ascending=False)
-            st.dataframe(gastos_carro, use_container_width=True)
-            st.bar_chart(data=gastos_carro.set_index('placa'))
-        with col2:
-            st.markdown("#### Gastos por Fechas")
-            df_inicio['fecha'] = pd.to_datetime(df_inicio['fecha']).dt.date
-            gastos_fecha = df_inicio.groupby('fecha')['monto'].sum().reset_index()
-            st.dataframe(gastos_fecha, use_container_width=True)
-            st.line_chart(data=gastos_fecha.set_index('fecha'))
+        df_inicio['fecha'] = pd.to_datetime(df_inicio['fecha']).dt.date
+        
+        # --- FILTROS ---
+        st.markdown("### 🔍 Filtrar Información")
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            placas_unicas = df_inicio['placa'].unique().tolist()
+            placas_sel = st.multiselect("Seleccionar Vehículo (Placa)", placas_unicas, default=placas_unicas)
+        with f2:
+            fecha_inicio = st.date_input("Fecha Inicio", df_inicio['fecha'].min())
+        with f3:
+            fecha_fin = st.date_input("Fecha Fin", df_inicio['fecha'].max())
+            
+        # Aplicar filtros
+        mask = (df_inicio['placa'].isin(placas_sel)) & (df_inicio['fecha'] >= fecha_inicio) & (df_inicio['fecha'] <= fecha_fin)
+        df_filtrado = df_inicio[mask]
+        
+        st.markdown("---")
+        if not df_filtrado.empty:
+            st.metric("Total Gastos (Según filtros aplicados)", f"${df_filtrado['monto'].sum():,.2f}")
+            
+            # Gráficas dinámicas
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("#### Gastos por Vehículo")
+                st.bar_chart(data=df_filtrado.groupby('placa')['monto'].sum().reset_index(), x='placa', y='monto')
+            with col2:
+                st.markdown("#### Evolución por Fechas")
+                gastos_fecha = df_filtrado.groupby('fecha')['monto'].sum().reset_index()
+                st.line_chart(data=gastos_fecha.set_index('fecha'))
+                
+            # Tabla de detalles y Botón EXCEL
+            st.markdown("#### Detalle de Registros")
+            st.dataframe(df_filtrado, use_container_width=True)
+            
+            csv_data = df_filtrado.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+            st.download_button(
+                label="📥 Descargar Reporte a Excel",
+                data=csv_data,
+                file_name=f"reporte_inicio_{fecha_inicio}_a_{fecha_fin}.csv",
+                mime="text/csv"
+            )
+        else:
+            st.warning("No se encontraron registros para los filtros seleccionados.")
     else:
-        st.info("Aún no hay registros de gastos.")
+        st.info("Aún no hay registros de gastos en el sistema.")
 
 # --- 🚚 VEHÍCULOS ---
 elif menu == "🚚 Gestión de Vehículos":
@@ -226,61 +268,9 @@ elif menu == "🛠️ Mantenimientos":
                         conn.commit(); st.success("✅ Cerrado"); st.rerun()
     conn.close()
 
-# --- 📊 REPORTES AVANZADOS (CON FILTROS Y EXCEL) ---
+# --- 📊 REPORTES AVANZADOS ---
 elif menu == "📊 Reportes Avanzados":
-    st.subheader("📊 Panel Interactivo de Reportes")
-    conn = conectar_db()
-    # Extraemos todos los detalles necesarios para el reporte
-    df_g = pd.read_sql("SELECT g.fecha, v.placa, g.tipo_gasto, g.concepto, g.monto, g.institucion_destino, g.detalle, g.kilometraje FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
-    conn.close()
-    
-    if not df_g.empty:
-        df_g['fecha'] = pd.to_datetime(df_g['fecha']).dt.date
-        
-        # Filtros de búsqueda
-        st.markdown("### 🔍 Filtros de Búsqueda")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            placas_unicas = df_g['placa'].unique().tolist()
-            placas_sel = st.multiselect("Filtrar por Vehículo (Placa)", placas_unicas, default=placas_unicas)
-        with c2:
-            fecha_inicio = st.date_input("Fecha Inicio", df_g['fecha'].min())
-        with c3:
-            fecha_fin = st.date_input("Fecha Fin", df_g['fecha'].max())
-            
-        # Aplicar los filtros al dataframe
-        mask = (df_g['placa'].isin(placas_sel)) & (df_g['fecha'] >= fecha_inicio) & (df_g['fecha'] <= fecha_fin)
-        df_filtrado = df_g[mask]
-        
-        st.markdown("---")
-        if not df_filtrado.empty:
-            st.metric("Total Gastos (Filtrado)", f"${df_filtrado['monto'].sum():,.2f}")
-            
-            # Gráficas
-            col1, col2 = st.columns(2)
-            with col1: 
-                st.markdown("#### Gastos por Categoría")
-                st.bar_chart(data=df_filtrado.groupby('tipo_gasto')['monto'].sum().reset_index(), x='tipo_gasto', y='monto')
-            with col2: 
-                st.markdown("#### Gastos por Vehículo")
-                st.bar_chart(data=df_filtrado.groupby('placa')['monto'].sum().reset_index(), x='placa', y='monto')
-            
-            # Tabla detallada
-            st.markdown("#### Detalle de Registros")
-            st.dataframe(df_filtrado, use_container_width=True)
-            
-            # Botón de Descarga a Excel (CSV compatible con separadores latinos)
-            csv_data = df_filtrado.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-            st.download_button(
-                label="📥 Descargar Reporte para Excel",
-                data=csv_data,
-                file_name=f"reporte_gastos_{fecha_inicio}_a_{fecha_fin}.csv",
-                mime="text/csv"
-            )
-        else:
-            st.warning("No hay datos para los filtros seleccionados.")
-    else:
-        st.info("No hay suficientes datos registrados para generar reportes.")
+    st.write("Dirígete a la pestaña de 'Inicio' para consultar y exportar a Excel todos los detalles y filtros de operaciones de manera interactiva.")
 
 # --- ⚙️ USUARIOS ---
 elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
