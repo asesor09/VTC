@@ -270,9 +270,8 @@ elif menu == "💸 Registro de Gastos":
             df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
             
             if not df_edit.empty:
-                # Crear un texto legible para buscar el gasto a editar
                 df_edit['display'] = df_edit['fecha'].astype(str) + " | Vehículo: " + df_edit['placa'] + " | " + df_edit['tipo_gasto'] + " | $" + df_edit['monto'].astype(str)
-                sel_gasto = st.selectbox("Seleccione el gasto a editar (Ordenados por fecha más reciente)", df_edit['display'])
+                sel_gasto = st.selectbox("Seleccione el gasto a editar", df_edit['display'])
                 
                 if sel_gasto:
                     g_data = df_edit[df_edit['display'] == sel_gasto].iloc[0]
@@ -301,21 +300,4 @@ elif menu == "💸 Registro de Gastos":
                             n_concepto = st.text_input("Escribe el concepto", value=val_concepto) if n_aplica == "Sí" else ""
                             
                         val_detalle = "" if pd.isna(g_data['detalle']) else str(g_data['detalle'])
-                        n_detalle = st.text_area("Detalles adicionales", value=val_detalle)
-                        
-                        if st.form_submit_button("Actualizar Gasto"):
-                            cur = conn.cursor()
-                            cur.execute("UPDATE gastos SET vehiculo_id=%s, tipo_gasto=%s, monto=%s, institucion_destino=%s, fecha=%s, detalle=%s, kilometraje=%s, aplica_concepto=%s, concepto=%s WHERE id=%s", 
-                                        (n_v_id, n_tipo_g, n_monto, n_destino, n_fecha, n_detalle, n_km, n_aplica, n_concepto, int(g_data['id'])))
-                            cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (n_km, n_v_id))
-                            conn.commit(); st.success("✅ Gasto actualizado correctamente"); st.rerun()
-            else:
-                st.info("No hay gastos registrados en el sistema para editar.")
-                
-        # PESTAÑA 3: VER / HISTORIAL
-        with t_ver_gasto:
-            df_g = pd.read_sql("SELECT g.*, v.placa FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
-            if not df_g.empty:
-                df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
-                mes_sel = st.selectbox("Filtrar historial por Mes", sorted(df_g['mes'].unique(), reverse=True))
-                st.dataframe(df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'kilometraje', 'concepto', 'institucion_destino']], use_container_
+                        n_detalle = st.text_area("Detalles adicionales
