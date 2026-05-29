@@ -2,7 +2,6 @@ import streamlit as st
 import psycopg2
 import pandas as pd
 from datetime import datetime
-import hashlib
 
 # --- CONFIGURACIÓN DE CONEXIÓN GLOBAL (NEON) ---
 DB_URL = "postgresql://neondb_owner:npg_Hw6lhgzCrm0B@ep-winter-mud-aqkidkqi-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
@@ -24,8 +23,10 @@ def inicializar_tablas():
     cur.execute('''CREATE TABLE IF NOT EXISTS usuarios (id SERIAL PRIMARY KEY, nombre TEXT, usuario TEXT UNIQUE, clave TEXT, rol TEXT)''')
     cur.execute('''CREATE TABLE IF NOT EXISTS configuracion (id SERIAL PRIMARY KEY, email_remitente TEXT, email_clave TEXT, email_destino TEXT)''')
     
-    # Insertar admin por defecto si no existe la tabla
-    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin') ON CONFLICT DO NOTHING")
+    # --- CORRECCIÓN DE LA CLAVE ---
+    # Borramos el admin viejo (que estaba encriptado) y lo creamos nuevo con la clave normal
+    cur.execute("DELETE FROM usuarios WHERE usuario = 'admin'")
+    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES ('Jacobo Admin', 'admin', 'Jacobo2026', 'admin')")
     
     # Columnas extra
     columnas_extra = [("kilometraje", "INTEGER"), ("aplica_concepto", "TEXT"), ("concepto", "TEXT"), ("detalle", "TEXT"), ("tipo_gasto", "TEXT")]
@@ -55,7 +56,6 @@ if not st.session_state['logged_in']:
     p = st.sidebar.text_input("Contraseña", type="password")
     if st.sidebar.button("Ingresar"):
         conn = conectar_db(); cur = conn.cursor()
-        # Se busca al usuario en la base de datos
         cur.execute("SELECT rol FROM usuarios WHERE usuario=%s AND clave=%s", (u, p))
         resultado = cur.fetchone()
         if resultado:
@@ -66,7 +66,7 @@ if not st.session_state['logged_in']:
             st.sidebar.error("Usuario o contraseña incorrectos")
             conn.close()
     st.title("🚐 Sistema de Gestión de Transporte")
-    st.warning("Por favor, ingrese sus credenciales en la barra lateral.")
+    st.warning("Por favor, ingrese sus credenciales en la barra lateral para acceder al sistema.")
     st.stop()
 
 # --- MENÚ ---
@@ -233,7 +233,7 @@ elif menu == "📊 Reportes Avanzados":
 # --- ⚙️ USUARIOS ---
 elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
     st.title("⚙️ Usuarios")
-    conn = conectar_db() # CONEXIÓN ARREGLADA
+    conn = conectar_db()
     with st.form("fu"):
         nom = st.text_input("Nombre"); usr = st.text_input("Usuario"); clv = st.text_input("Clave")
         rol = st.selectbox("Rol", ["vendedor", "admin"])
@@ -247,7 +247,7 @@ elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
 # --- 🔒 CONFIG. ALERTAS ---
 elif menu == "🔒 Config. Alertas":
     st.title("🔒 Configuración Segura")
-    conn = conectar_db() # CONEXIÓN ARREGLADA
+    conn = conectar_db()
     cur = conn.cursor()
     cur.execute("SELECT * FROM configuracion WHERE id = 1"); act = cur.fetchone()
     with st.form("f_conf"):
@@ -255,6 +255,7 @@ elif menu == "🔒 Config. Alertas":
         cla = st.text_input("Clave Gmail (16 letras)", type="password", value=act[2] if act else "")
         des = st.text_input("Correo Destino", value=act[3] if act else "")
         if st.form_submit_button("💾 Guardar"):
-            cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino) VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''', (rem, cla, des))
+            cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino)
+                           VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''', (rem, cla, des))
             conn.commit(); st.success("Guardado."); st.rerun()
     conn.close()
