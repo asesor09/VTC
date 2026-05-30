@@ -48,13 +48,13 @@ def inicializar_tablas():
         ("concepto", "TEXT"), 
         ("detalle", "TEXT"), 
         ("tipo_gasto", "TEXT"),
-        ("estado_pago", "TEXT") # NUEVA COLUMNA PARA SABER SI SE PAGÓ O NO
+        ("estado_pago", "TEXT")
     ]
     for col, tipo in columnas_extra_gastos:
         try: cur.execute(f"ALTER TABLE gastos ADD COLUMN {col} {tipo};")
         except Exception: pass
         
-    # Actualizar gastos antiguos para que no queden con pago "nulo"
+    # Actualizar gastos antiguos para que no queden nulos
     cur.execute("UPDATE gastos SET estado_pago = 'Pagado' WHERE estado_pago IS NULL")
             
     conn.close()
@@ -109,7 +109,6 @@ if not st.session_state['logged_in']:
 # --- MENÚ Y BOTÓN DE CERRAR ---
 st.sidebar.title("🚐 Panel de Control")
 
-# SE AÑADIÓ LA OPCIÓN DE "ESTADO DE PAGOS"
 opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "🏷️ Categorías", "💸 Registro de Gastos", "💳 Estado de Pagos", "🛠️ Mantenimientos", "🔒 Config. Alertas"]
 if st.session_state.u_rol == "admin":
     opciones_menu.append("⚙️ Usuarios")
@@ -284,17 +283,14 @@ elif menu == "💸 Registro de Gastos":
     if not v_data.empty:
         t_reg_gasto, t_edit_gasto, t_ver_gasto = st.tabs(["➕ Registrar Gasto", "✏️ Editar Gasto", "🔍 Historial"])
         
-        # PESTAÑA 1: REGISTRAR 
         with t_reg_gasto:
             st.subheader("Registrar Nuevo Gasto")
             c1, c2 = st.columns(2)
             with c1:
                 v_sel = st.selectbox("Vehículo", v_data['placa'])
                 v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-                
                 tipo_g = st.selectbox("Categoría Principal", lista_categorias)
                 precio_defecto = float(cat_dict.get(tipo_g, 0.0))
-                
                 monto = st.number_input("Monto (€)", min_value=0.0, value=precio_defecto, step=100.0)
                 estado_pago = st.radio("Estado del Pago", ["Pagado", "Pendiente"])
                 
@@ -314,14 +310,11 @@ elif menu == "💸 Registro de Gastos":
                 cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
                 conn.commit(); st.success("✅ Guardado exitosamente"); st.rerun()
         
-        # PESTAÑA 2: EDITAR
         with t_edit_gasto:
             df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.estado_pago, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
-            
             if not df_edit.empty:
                 df_edit['display'] = df_edit['fecha'].astype(str) + " | " + df_edit['placa'] + " | " + df_edit['tipo_gasto'] + " | €" + df_edit['monto'].astype(str) + " (" + df_edit['estado_pago'] + ")"
                 sel_gasto = st.selectbox("Seleccione el gasto a editar", df_edit['display'])
-                
                 if sel_gasto:
                     g_data = df_edit[df_edit['display'] == sel_gasto].iloc[0]
                     with st.form("form_edit_gasto"):
@@ -331,87 +324,98 @@ elif menu == "💸 Registro de Gastos":
                             idx_vehiculo = int(v_data[v_data['placa'] == g_data['placa']].index[0])
                             n_v_sel = st.selectbox("Vehículo", v_data['placa'], index=idx_vehiculo)
                             n_v_id = int(v_data[v_data['placa'] == n_v_sel]['id'].values[0])
-                            
                             idx_cat = lista_categorias.index(g_data['tipo_gasto']) if g_data['tipo_gasto'] in lista_categorias else 0
                             n_tipo_g = st.selectbox("Categoría Principal", lista_categorias, index=idx_cat)
-                            
                             n_monto = st.number_input("Monto (€)", min_value=0.0, value=float(g_data['monto']))
-                            
                             estado_actual = str(g_data['estado_pago']) if pd.notna(g_data['estado_pago']) else "Pagado"
                             n_estado_pago = st.radio("Estado del Pago (Edición)", ["Pagado", "Pendiente"], index=0 if estado_actual == "Pagado" else 1)
-                            
                         with c2:
                             val_destino = "" if pd.isna(g_data['institucion_destino']) else str(g_data['institucion_destino'])
                             n_destino = st.text_input("Destino / Institución", value=val_destino)
                             n_fecha = st.date_input("Fecha", pd.to_datetime(g_data['fecha']).date())
-                            
                             n_aplica = st.radio("¿Ingresar concepto específico? (Edición)", ["No", "Sí"], index=1 if g_data['aplica_concepto'] == "Sí" else 0)
                             val_concepto = "" if pd.isna(g_data['concepto']) else str(g_data['concepto'])
                             n_concepto = st.text_input("Escribe el concepto", value=val_concepto) if n_aplica == "Sí" else ""
-                            
                             val_km = int(g_data['kilometraje']) if pd.notna(g_data['kilometraje']) else 0
                             n_km = st.number_input("Kilometraje", min_value=0, value=val_km)
-                            
                         val_detalle = "" if pd.isna(g_data['detalle']) else str(g_data['detalle'])
                         n_detalle = st.text_area("Detalles adicionales", value=val_detalle)
-                        
                         if st.form_submit_button("Actualizar Gasto"):
                             cur = conn.cursor()
                             cur.execute("UPDATE gastos SET vehiculo_id=%s, tipo_gasto=%s, monto=%s, institucion_destino=%s, fecha=%s, detalle=%s, kilometraje=%s, aplica_concepto=%s, concepto=%s, estado_pago=%s WHERE id=%s", 
                                         (n_v_id, n_tipo_g, n_monto, n_destino, n_fecha, n_detalle, n_km, n_aplica, n_concepto, n_estado_pago, int(g_data['id'])))
                             cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (n_km, n_v_id))
                             conn.commit(); st.success("✅ Gasto actualizado correctamente"); st.rerun()
-            else:
-                st.info("No hay gastos registrados en el sistema para editar.")
+            else: st.info("No hay gastos registrados en el sistema para editar.")
                 
-        # PESTAÑA 3: VER / HISTORIAL
         with t_ver_gasto:
             df_g = pd.read_sql("SELECT g.*, v.placa FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
             if not df_g.empty:
                 df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
                 mes_sel = st.selectbox("Filtrar historial por Mes", sorted(df_g['mes'].unique(), reverse=True))
                 st.dataframe(df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'estado_pago', 'kilometraje', 'concepto', 'institucion_destino']], use_container_width=True)
-            else:
-                st.info("No hay historial de gastos.")
-                
-    else: 
-        st.warning("⚠️ Registra un vehículo primero.")
+            else: st.info("No hay historial de gastos.")
+    else: st.warning("⚠️ Registra un vehículo primero.")
     conn.close()
 
-# --- 💳 ESTADO DE PAGOS (NUEVA VENTANA DE DEUDAS) ---
+# --- 💳 ESTADO DE PAGOS (FILTROS DE FECHA Y PAGO MÚLTIPLE) ---
 elif menu == "💳 Estado de Pagos":
-    st.subheader("💳 Relación de Gastos: Pagados vs Pendientes")
+    st.subheader("💳 Relación de Gastos y Facturas Pendientes")
     conn = conectar_db()
     
     df_pagos = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.concepto, g.monto, g.estado_pago FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
     
     if not df_pagos.empty:
+        df_pagos['fecha'] = pd.to_datetime(df_pagos['fecha']).dt.date
+        
         total_pagado = df_pagos[df_pagos['estado_pago'] == 'Pagado']['monto'].sum()
         total_pendiente = df_pagos[df_pagos['estado_pago'] == 'Pendiente']['monto'].sum()
         
         c1, c2 = st.columns(2)
-        c1.metric("✅ Dinero Total Pagado", f"€{total_pagado:,.2f}")
-        c2.metric("❌ Deuda Total (Pendiente por Pagar)", f"€{total_pendiente:,.2f}")
+        c1.metric("✅ Dinero Total Pagado (Histórico)", f"€{total_pagado:,.2f}")
+        c2.metric("❌ Deuda Total Global (Pendiente)", f"€{total_pendiente:,.2f}")
         
         st.markdown("---")
-        st.markdown("### 📋 Facturas y Gastos Pendientes")
+        st.markdown("### 📋 Filtrar y Pagar Facturas")
+        
         df_pendientes = df_pagos[df_pagos['estado_pago'] == 'Pendiente'].copy()
         
         if not df_pendientes.empty:
-            st.dataframe(df_pendientes[['fecha', 'placa', 'tipo_gasto', 'monto', 'estado_pago']], use_container_width=True)
+            f1, f2 = st.columns(2)
+            with f1: fecha_ini_pen = st.date_input("Buscar desde la fecha:", df_pendientes['fecha'].min(), key="f_i_pen")
+            with f2: fecha_fin_pen = st.date_input("Hasta la fecha:", df_pendientes['fecha'].max(), key="f_f_pen")
             
-            with st.form("form_pagar_deuda"):
-                st.markdown("**¿Ya pagaste alguno de estos gastos? Mårcalo aquí:**")
-                df_pendientes['display'] = df_pendientes['fecha'].astype(str) + " | " + df_pendientes['placa'] + " | " + df_pendientes['tipo_gasto'] + " | €" + df_pendientes['monto'].astype(str)
-                gasto_a_pagar = st.selectbox("Seleccione el gasto que desea liquidar:", df_pendientes['display'])
+            mask_pen = (df_pendientes['fecha'] >= fecha_ini_pen) & (df_pendientes['fecha'] <= fecha_fin_pen)
+            df_pen_filtrado = df_pendientes[mask_pen].copy()
+            
+            if not df_pen_filtrado.empty:
+                st.info(f"Tienes **€{df_pen_filtrado['monto'].sum():,.2f}** en deudas durante este rango de fechas.")
+                st.dataframe(df_pen_filtrado[['fecha', 'placa', 'tipo_gasto', 'concepto', 'monto']], use_container_width=True)
                 
-                if st.form_submit_button("✅ Marcar como PAGADO"):
-                    g_id = df_pendientes[df_pendientes['display'] == gasto_a_pagar]['id'].values[0]
-                    cur = conn.cursor()
-                    cur.execute("UPDATE gastos SET estado_pago = 'Pagado' WHERE id = %s", (int(g_id),))
-                    conn.commit()
-                    st.success("¡Excelente! Gasto marcado como pagado exitosamente.")
-                    st.rerun()
+                with st.form("form_pagar_deuda_multiple"):
+                    st.markdown("**¿Cuáles de estos gastos vas a cancelar hoy?**")
+                    df_pen_filtrado['display'] = df_pen_filtrado['fecha'].astype(str) + " | " + df_pen_filtrado['placa'] + " | " + df_pen_filtrado['tipo_gasto'] + " | €" + df_pen_filtrado['monto'].astype(str)
+                    
+                    # Permite seleccionar varios a la vez
+                    gastos_a_pagar = st.multiselect("Seleccione uno o varios gastos (puede escribir para buscar):", df_pen_filtrado['display'].tolist())
+                    
+                    if st.form_submit_button("✅ Marcar Seleccionados como PAGADOS"):
+                        if gastos_a_pagar:
+                            ids_a_pagar = df_pen_filtrado[df_pen_filtrado['display'].isin(gastos_a_pagar)]['id'].tolist()
+                            cur = conn.cursor()
+                            
+                            # Actualización segura y masiva de los IDs seleccionados
+                            formato_ids = ','.join(['%s'] * len(ids_a_pagar))
+                            query = f"UPDATE gastos SET estado_pago = 'Pagado' WHERE id IN ({formato_ids})"
+                            cur.execute(query, tuple(ids_a_pagar))
+                            conn.commit()
+                            
+                            st.success(f"¡Excelente! {len(ids_a_pagar)} gasto(s) liquidados exitosamente.")
+                            st.rerun()
+                        else:
+                            st.warning("Debe seleccionar al menos un gasto de la lista.")
+            else:
+                st.info("No hay facturas pendientes dentro de las fechas seleccionadas.")
         else:
             st.success("🎉 ¡Felicidades! No tienes ninguna cuenta o gasto pendiente por pagar en el sistema.")
     else:
