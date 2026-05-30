@@ -41,11 +41,21 @@ def inicializar_tablas():
     for cat in categorias_base:
         cur.execute("INSERT INTO categorias_gastos (nombre, precio_predeterminado) VALUES (%s, 0.0) ON CONFLICT DO NOTHING", (cat,))
     
-    # Actualización segura de columnas adicionales en Gastos
-    columnas_extra_gastos = [("kilometraje", "INTEGER"), ("aplica_concepto", "TEXT"), ("concepto", "TEXT"), ("detalle", "TEXT"), ("tipo_gasto", "TEXT")]
+    # Actualización segura de columnas adicionales en Gastos (Incluyendo Estado de Pago)
+    columnas_extra_gastos = [
+        ("kilometraje", "INTEGER"), 
+        ("aplica_concepto", "TEXT"), 
+        ("concepto", "TEXT"), 
+        ("detalle", "TEXT"), 
+        ("tipo_gasto", "TEXT"),
+        ("estado_pago", "TEXT") # NUEVA COLUMNA PARA SABER SI SE PAGÓ O NO
+    ]
     for col, tipo in columnas_extra_gastos:
         try: cur.execute(f"ALTER TABLE gastos ADD COLUMN {col} {tipo};")
         except Exception: pass
+        
+    # Actualizar gastos antiguos para que no queden con pago "nulo"
+    cur.execute("UPDATE gastos SET estado_pago = 'Pagado' WHERE estado_pago IS NULL")
             
     conn.close()
 
@@ -99,13 +109,13 @@ if not st.session_state['logged_in']:
 # --- MENÚ Y BOTÓN DE CERRAR ---
 st.sidebar.title("🚐 Panel de Control")
 
-opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "🏷️ Categorías", "💸 Registro de Gastos", "🛠️ Mantenimientos", "🔒 Config. Alertas"]
+# SE AÑADIÓ LA OPCIÓN DE "ESTADO DE PAGOS"
+opciones_menu = ["🏠 Inicio", "🚚 Gestión de Vehículos", "🏷️ Categorías", "💸 Registro de Gastos", "💳 Estado de Pagos", "🛠️ Mantenimientos", "🔒 Config. Alertas"]
 if st.session_state.u_rol == "admin":
     opciones_menu.append("⚙️ Usuarios")
 
 menu = st.sidebar.radio("Navegación", opciones_menu)
 
-# Botón visible y grande para cerrar el sistema
 st.sidebar.markdown("---")
 if st.sidebar.button("🚪 Cerrar Sistema (Salir)", use_container_width=True, type="primary"):
     st.session_state['logged_in'] = False
@@ -123,13 +133,13 @@ if menu == "🏠 Inicio":
     
     c1, c2, c3 = st.columns(3)
     c1.metric("Vehículos en la Flota", v)
-    c2.metric("Total Inversión (Gastos)", f"€{g:,.2f}") # Cambiado a Euros
+    c2.metric("Total Inversión (Gastos)", f"€{g:,.2f}")
     c3.metric("Mantenimientos Pendientes", m)
     
     st.markdown("---")
     st.subheader("📊 Análisis Interactivo de Gastos")
     
-    df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.tipo_gasto, g.concepto, g.monto, g.institucion_destino, g.detalle, g.kilometraje FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
+    df_inicio = pd.read_sql("SELECT g.fecha, v.placa, g.tipo_gasto, g.concepto, g.monto, g.estado_pago, g.institucion_destino, g.detalle, g.kilometraje FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
     conn.close()
     
     if not df_inicio.empty:
@@ -150,7 +160,7 @@ if menu == "🏠 Inicio":
         
         st.markdown("---")
         if not df_filtrado.empty:
-            st.metric("Total Gastos (Según filtros aplicados)", f"€{df_filtrado['monto'].sum():,.2f}") # Cambiado a Euros
+            st.metric("Total Gastos (Según filtros aplicados)", f"€{df_filtrado['monto'].sum():,.2f}")
             
             col1, col2 = st.columns(2)
             with col1:
@@ -214,7 +224,7 @@ elif menu == "🚚 Gestión de Vehículos":
         st.dataframe(pd.read_sql("SELECT placa, marca, modelo, tipo, conductor, km_actual FROM vehiculos", conn), use_container_width=True)
         conn.close()
 
-# --- 🏷️ CATEGORÍAS (AHORA EN EUROS) ---
+# --- 🏷️ CATEGORÍAS ---
 elif menu == "🏷️ Categorías":
     st.subheader("Gestión de Categorías de Gastos")
     conn = conectar_db()
@@ -225,7 +235,6 @@ elif menu == "🏷️ Categorías":
         with st.form("form_nueva_cat"):
             c1, c2 = st.columns(2)
             nueva_cat = c1.text_input("Nombre de la categoría")
-            # Cambiado a Euros (€)
             precio_base = c2.number_input("Precio predeterminado (€)", min_value=0.0, value=0.0, step=100.0)
             if st.form_submit_button("Guardar Categoría"):
                 if nueva_cat.strip() != "":
@@ -246,7 +255,6 @@ elif menu == "🏷️ Categorías":
             
             with st.form("form_edit_cat"):
                 n_nom_cat = st.text_input("Nombre", value=datos_cat['nombre'])
-                # Cambiado a Euros (€)
                 n_precio_cat = st.number_input("Precio predeterminado (€)", min_value=0.0, value=float(datos_cat['precio_predeterminado']), step=100.0)
                 if st.form_submit_button("Actualizar Categoría"):
                     cur = conn.cursor()
@@ -264,7 +272,7 @@ elif menu == "🏷️ Categorías":
         
     conn.close()
 
-# --- 💸 GASTOS (REGISTRO DINÁMICO DE PRECIOS Y EDICIÓN EN EUROS) ---
+# --- 💸 GASTOS ---
 elif menu == "💸 Registro de Gastos":
     conn = conectar_db()
     v_data = pd.read_sql("SELECT id, placa, km_actual FROM vehiculos", conn)
@@ -287,29 +295,31 @@ elif menu == "💸 Registro de Gastos":
                 tipo_g = st.selectbox("Categoría Principal", lista_categorias)
                 precio_defecto = float(cat_dict.get(tipo_g, 0.0))
                 
-                # Cambiado a Euros (€)
                 monto = st.number_input("Monto (€)", min_value=0.0, value=precio_defecto, step=100.0)
-                kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
+                estado_pago = st.radio("Estado del Pago", ["Pagado", "Pendiente"])
+                
             with c2:
                 destino = st.text_input("Destino / Institución")
                 fecha = st.date_input("Fecha", datetime.now().date())
                 aplica_concepto = st.radio("¿Ingresar concepto específico?", ["No", "Sí"])
                 concepto_adicional = st.text_input("Escribe el concepto") if aplica_concepto == "Sí" else ""
+                kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
+                
             detalle = st.text_area("Detalles adicionales")
             
             if st.button("Guardar Gasto (Registrar)", type="primary"):
                 cur = conn.cursor()
-                cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional))
+                cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto, estado_pago) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
+                            (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional, estado_pago))
                 cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
                 conn.commit(); st.success("✅ Guardado exitosamente"); st.rerun()
         
         # PESTAÑA 2: EDITAR
         with t_edit_gasto:
-            df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
+            df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.estado_pago, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
             
             if not df_edit.empty:
-                # Cambiado a Euros (€) en la previsualización
-                df_edit['display'] = df_edit['fecha'].astype(str) + " | Vehículo: " + df_edit['placa'] + " | " + df_edit['tipo_gasto'] + " | €" + df_edit['monto'].astype(str)
+                df_edit['display'] = df_edit['fecha'].astype(str) + " | " + df_edit['placa'] + " | " + df_edit['tipo_gasto'] + " | €" + df_edit['monto'].astype(str) + " (" + df_edit['estado_pago'] + ")"
                 sel_gasto = st.selectbox("Seleccione el gasto a editar", df_edit['display'])
                 
                 if sel_gasto:
@@ -325,11 +335,11 @@ elif menu == "💸 Registro de Gastos":
                             idx_cat = lista_categorias.index(g_data['tipo_gasto']) if g_data['tipo_gasto'] in lista_categorias else 0
                             n_tipo_g = st.selectbox("Categoría Principal", lista_categorias, index=idx_cat)
                             
-                            # Cambiado a Euros (€)
                             n_monto = st.number_input("Monto (€)", min_value=0.0, value=float(g_data['monto']))
-                            val_km = int(g_data['kilometraje']) if pd.notna(g_data['kilometraje']) else 0
-                            n_km = st.number_input("Kilometraje", min_value=0, value=val_km)
-                        
+                            
+                            estado_actual = str(g_data['estado_pago']) if pd.notna(g_data['estado_pago']) else "Pagado"
+                            n_estado_pago = st.radio("Estado del Pago (Edición)", ["Pagado", "Pendiente"], index=0 if estado_actual == "Pagado" else 1)
+                            
                         with c2:
                             val_destino = "" if pd.isna(g_data['institucion_destino']) else str(g_data['institucion_destino'])
                             n_destino = st.text_input("Destino / Institución", value=val_destino)
@@ -339,13 +349,16 @@ elif menu == "💸 Registro de Gastos":
                             val_concepto = "" if pd.isna(g_data['concepto']) else str(g_data['concepto'])
                             n_concepto = st.text_input("Escribe el concepto", value=val_concepto) if n_aplica == "Sí" else ""
                             
+                            val_km = int(g_data['kilometraje']) if pd.notna(g_data['kilometraje']) else 0
+                            n_km = st.number_input("Kilometraje", min_value=0, value=val_km)
+                            
                         val_detalle = "" if pd.isna(g_data['detalle']) else str(g_data['detalle'])
                         n_detalle = st.text_area("Detalles adicionales", value=val_detalle)
                         
                         if st.form_submit_button("Actualizar Gasto"):
                             cur = conn.cursor()
-                            cur.execute("UPDATE gastos SET vehiculo_id=%s, tipo_gasto=%s, monto=%s, institucion_destino=%s, fecha=%s, detalle=%s, kilometraje=%s, aplica_concepto=%s, concepto=%s WHERE id=%s", 
-                                        (n_v_id, n_tipo_g, n_monto, n_destino, n_fecha, n_detalle, n_km, n_aplica, n_concepto, int(g_data['id'])))
+                            cur.execute("UPDATE gastos SET vehiculo_id=%s, tipo_gasto=%s, monto=%s, institucion_destino=%s, fecha=%s, detalle=%s, kilometraje=%s, aplica_concepto=%s, concepto=%s, estado_pago=%s WHERE id=%s", 
+                                        (n_v_id, n_tipo_g, n_monto, n_destino, n_fecha, n_detalle, n_km, n_aplica, n_concepto, n_estado_pago, int(g_data['id'])))
                             cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (n_km, n_v_id))
                             conn.commit(); st.success("✅ Gasto actualizado correctamente"); st.rerun()
             else:
@@ -357,12 +370,53 @@ elif menu == "💸 Registro de Gastos":
             if not df_g.empty:
                 df_g['mes'] = pd.to_datetime(df_g['fecha']).dt.strftime('%Y-%m')
                 mes_sel = st.selectbox("Filtrar historial por Mes", sorted(df_g['mes'].unique(), reverse=True))
-                st.dataframe(df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'kilometraje', 'concepto', 'institucion_destino']], use_container_width=True)
+                st.dataframe(df_g[df_g['mes'] == mes_sel][['fecha', 'placa', 'tipo_gasto', 'monto', 'estado_pago', 'kilometraje', 'concepto', 'institucion_destino']], use_container_width=True)
             else:
                 st.info("No hay historial de gastos.")
                 
     else: 
         st.warning("⚠️ Registra un vehículo primero.")
+    conn.close()
+
+# --- 💳 ESTADO DE PAGOS (NUEVA VENTANA DE DEUDAS) ---
+elif menu == "💳 Estado de Pagos":
+    st.subheader("💳 Relación de Gastos: Pagados vs Pendientes")
+    conn = conectar_db()
+    
+    df_pagos = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.concepto, g.monto, g.estado_pago FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id", conn)
+    
+    if not df_pagos.empty:
+        total_pagado = df_pagos[df_pagos['estado_pago'] == 'Pagado']['monto'].sum()
+        total_pendiente = df_pagos[df_pagos['estado_pago'] == 'Pendiente']['monto'].sum()
+        
+        c1, c2 = st.columns(2)
+        c1.metric("✅ Dinero Total Pagado", f"€{total_pagado:,.2f}")
+        c2.metric("❌ Deuda Total (Pendiente por Pagar)", f"€{total_pendiente:,.2f}")
+        
+        st.markdown("---")
+        st.markdown("### 📋 Facturas y Gastos Pendientes")
+        df_pendientes = df_pagos[df_pagos['estado_pago'] == 'Pendiente'].copy()
+        
+        if not df_pendientes.empty:
+            st.dataframe(df_pendientes[['fecha', 'placa', 'tipo_gasto', 'monto', 'estado_pago']], use_container_width=True)
+            
+            with st.form("form_pagar_deuda"):
+                st.markdown("**¿Ya pagaste alguno de estos gastos? Mårcalo aquí:**")
+                df_pendientes['display'] = df_pendientes['fecha'].astype(str) + " | " + df_pendientes['placa'] + " | " + df_pendientes['tipo_gasto'] + " | €" + df_pendientes['monto'].astype(str)
+                gasto_a_pagar = st.selectbox("Seleccione el gasto que desea liquidar:", df_pendientes['display'])
+                
+                if st.form_submit_button("✅ Marcar como PAGADO"):
+                    g_id = df_pendientes[df_pendientes['display'] == gasto_a_pagar]['id'].values[0]
+                    cur = conn.cursor()
+                    cur.execute("UPDATE gastos SET estado_pago = 'Pagado' WHERE id = %s", (int(g_id),))
+                    conn.commit()
+                    st.success("¡Excelente! Gasto marcado como pagado exitosamente.")
+                    st.rerun()
+        else:
+            st.success("🎉 ¡Felicidades! No tienes ninguna cuenta o gasto pendiente por pagar en el sistema.")
+    else:
+        st.info("Aún no hay registros de gastos para evaluar.")
+        
     conn.close()
 
 # --- 🛠️ MANTENIMIENTOS ---
