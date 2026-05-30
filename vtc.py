@@ -3,6 +3,7 @@ import psycopg2
 import pandas as pd
 from datetime import datetime
 import hashlib
+import time
 
 # --- CONFIGURACIÓN DE CONEXIÓN GLOBAL (NEON) ---
 DB_URL = "postgresql://neondb_owner:npg_Hw6lhgzCrm0B@ep-winter-mud-aqkidkqi-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require&connect_timeout=10"
@@ -197,7 +198,7 @@ elif menu == "🚚 Gestión de Vehículos":
                     conn = conectar_db(); cur = conn.cursor()
                     try:
                         cur.execute("INSERT INTO vehiculos (placa, marca, modelo, tipo, conductor, km_actual) VALUES (%s,%s,%s,%s,%s,%s)", (placa, marca, modelo, tipo, cond, km))
-                        conn.commit(); st.success("✅ Registrado con éxito"); st.rerun()
+                        conn.commit(); st.success("✅ Registrado con éxito"); time.sleep(1.5); st.rerun()
                     except Exception as e:
                         conn.rollback()
                         st.error(f"⚠️ Error: La placa '{placa}' ya está registrada en el sistema.")
@@ -216,7 +217,7 @@ elif menu == "🚚 Gestión de Vehículos":
                 if st.form_submit_button("Actualizar Vehículo"):
                     conn = conectar_db(); cur = conn.cursor()
                     cur.execute("UPDATE vehiculos SET conductor=%s, tipo=%s, km_actual=%s WHERE placa=%s", (n_cond, n_tipo, n_km, sel))
-                    conn.commit(); conn.close(); st.success("✅ Actualizado"); st.rerun()
+                    conn.commit(); conn.close(); st.success("✅ Actualizado"); time.sleep(1.5); st.rerun()
 
     with t_ver:
         conn = conectar_db()
@@ -240,7 +241,7 @@ elif menu == "🏷️ Categorías":
                     cur = conn.cursor()
                     try:
                         cur.execute("INSERT INTO categorias_gastos (nombre, precio_predeterminado) VALUES (%s, %s)", (nueva_cat.strip(), precio_base))
-                        conn.commit(); st.success("✅ Categoría agregada"); st.rerun()
+                        conn.commit(); st.success("✅ Categoría agregada"); time.sleep(1.5); st.rerun()
                     except Exception as e:
                         conn.rollback(); st.error("⚠️ Esta categoría ya existe.")
                 else:
@@ -259,7 +260,7 @@ elif menu == "🏷️ Categorías":
                     cur = conn.cursor()
                     try:
                         cur.execute("UPDATE categorias_gastos SET nombre=%s, precio_predeterminado=%s WHERE id=%s", (n_nom_cat, n_precio_cat, int(datos_cat['id'])))
-                        conn.commit(); st.success("✅ Actualizado"); st.rerun()
+                        conn.commit(); st.success("✅ Actualizado"); time.sleep(1.5); st.rerun()
                     except Exception as e:
                         conn.rollback(); st.error("⚠️ Error: Ya existe otra categoría con ese nombre.")
         else:
@@ -292,8 +293,6 @@ elif menu == "💸 Registro de Gastos":
                 tipo_g = st.selectbox("Categoría Principal", lista_categorias)
                 precio_defecto = float(cat_dict.get(tipo_g, 0.0))
                 monto = st.number_input("Monto (€)", min_value=0.0, value=precio_defecto, step=100.0)
-                
-                # AHORA ES OBLIGATORIO SELECCIONAR
                 estado_pago = st.selectbox("Estado del Pago", ["-- Seleccione --", "Pendiente", "Pagado"])
                 
             with c2:
@@ -313,7 +312,7 @@ elif menu == "💸 Registro de Gastos":
                     cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto, estado_pago) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
                                 (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional, estado_pago))
                     cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
-                    conn.commit(); st.success("✅ Guardado exitosamente"); st.rerun()
+                    conn.commit(); st.success("✅ Guardado exitosamente"); time.sleep(1.5); st.rerun()
         
         with t_edit_gasto:
             df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.estado_pago, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
@@ -333,7 +332,6 @@ elif menu == "💸 Registro de Gastos":
                             n_tipo_g = st.selectbox("Categoría Principal", lista_categorias, index=idx_cat)
                             n_monto = st.number_input("Monto (€)", min_value=0.0, value=float(g_data['monto']))
                             
-                            # ESTADO SEGURO EN EDICIÓN
                             estado_actual = str(g_data['estado_pago']).strip() if pd.notna(g_data['estado_pago']) else "Pendiente"
                             idx_est = 1 if estado_actual == "Pagado" else 0
                             n_estado_pago = st.selectbox("Estado del Pago (Edición)", ["Pendiente", "Pagado"], index=idx_est)
@@ -349,12 +347,13 @@ elif menu == "💸 Registro de Gastos":
                             n_km = st.number_input("Kilometraje", min_value=0, value=val_km)
                         val_detalle = "" if pd.isna(g_data['detalle']) else str(g_data['detalle'])
                         n_detalle = st.text_area("Detalles adicionales", value=val_detalle)
+                        
                         if st.form_submit_button("Actualizar Gasto"):
                             cur = conn.cursor()
                             cur.execute("UPDATE gastos SET vehiculo_id=%s, tipo_gasto=%s, monto=%s, institucion_destino=%s, fecha=%s, detalle=%s, kilometraje=%s, aplica_concepto=%s, concepto=%s, estado_pago=%s WHERE id=%s", 
                                         (n_v_id, n_tipo_g, n_monto, n_destino, n_fecha, n_detalle, n_km, n_aplica, n_concepto, n_estado_pago, int(g_data['id'])))
                             cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (n_km, n_v_id))
-                            conn.commit(); st.success("✅ Gasto actualizado correctamente"); st.rerun()
+                            conn.commit(); st.success("✅ Gasto actualizado correctamente"); time.sleep(1.5); st.rerun()
             else: st.info("No hay gastos registrados en el sistema para editar.")
                 
         with t_ver_gasto:
@@ -418,6 +417,7 @@ elif menu == "💳 Estado de Pagos":
                             conn.commit()
                             
                             st.success(f"¡Excelente! {len(ids_a_pagar)} gasto(s) liquidados exitosamente.")
+                            time.sleep(1.5)
                             st.rerun()
                         else:
                             st.warning("Debe seleccionar al menos un gasto de la lista.")
@@ -444,7 +444,7 @@ elif menu == "🛠️ Mantenimientos":
                 if st.form_submit_button("Programar"):
                     cur = conn.cursor()
                     cur.execute("INSERT INTO mantenimientos (vehiculo_id, descripcion, km_proximo_cambio, estado) VALUES (%s, %s, %s, 'Pendiente')", (v_id, desc, km_prox))
-                    conn.commit(); st.success("✅ Programado"); st.rerun()
+                    conn.commit(); st.success("✅ Programado"); time.sleep(1.5); st.rerun()
         with c2:
             st.dataframe(v_data[['placa', 'km_actual']], use_container_width=True)
             
@@ -457,7 +457,7 @@ elif menu == "🛠️ Mantenimientos":
                     mant_id = st.selectbox("ID a cerrar", pendientes['id'])
                     if st.form_submit_button("Marcar como Realizado"):
                         cur = conn.cursor(); cur.execute("UPDATE mantenimientos SET estado = 'Realizado' WHERE id = %s", (int(mant_id),))
-                        conn.commit(); st.success("✅ Cerrado"); st.rerun()
+                        conn.commit(); st.success("✅ Cerrado"); time.sleep(1.5); st.rerun()
     conn.close()
 
 # --- ⚙️ USUARIOS ---
@@ -467,33 +467,4 @@ elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
     with st.form("fu"):
         nom = st.text_input("Nombre"); usr = st.text_input("Usuario"); clv = st.text_input("Clave")
         rol = st.selectbox("Rol", ["vendedor", "admin"])
-        if st.form_submit_button("👤 Crear"):
-            if usr.strip() == "":
-                st.warning("El usuario no puede estar vacío.")
-            else:
-                cur = conn.cursor()
-                try:
-                    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES (%s,%s,%s,%s)", (nom, usr, hashlib.sha256(clv.encode()).hexdigest(), rol))
-                    conn.commit(); st.success("✅ Usuario creado"); st.rerun()
-                except Exception as e:
-                    conn.rollback()
-                    st.error("⚠️ Error: Este nombre de usuario ya existe en el sistema.")
-    
-    st.dataframe(pd.read_sql("SELECT nombre, usuario, rol FROM usuarios", conn), use_container_width=True)
-    conn.close()
-
-# --- 🔒 CONFIG. ALERTAS ---
-elif menu == "🔒 Config. Alertas":
-    st.title("🔒 Configuración Segura")
-    conn = conectar_db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM configuracion WHERE id = 1"); act = cur.fetchone()
-    with st.form("f_conf"):
-        rem = st.text_input("Gmail Remitente", value=act[1] if act else "")
-        cla = st.text_input("Clave Gmail (16 letras)", type="password", value=act[2] if act else "")
-        des = st.text_input("Correo Destino", value=act[3] if act else "")
-        if st.form_submit_button("💾 Guardar"):
-            cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino)
-                           VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''', (rem, cla, des))
-            conn.commit(); st.success("✅ Guardado."); st.rerun()
-    conn.close()
+        if
