@@ -292,7 +292,9 @@ elif menu == "💸 Registro de Gastos":
                 tipo_g = st.selectbox("Categoría Principal", lista_categorias)
                 precio_defecto = float(cat_dict.get(tipo_g, 0.0))
                 monto = st.number_input("Monto (€)", min_value=0.0, value=precio_defecto, step=100.0)
-                estado_pago = st.radio("Estado del Pago", ["Pagado", "Pendiente"])
+                
+                # AHORA ES OBLIGATORIO SELECCIONAR
+                estado_pago = st.selectbox("Estado del Pago", ["-- Seleccione --", "Pendiente", "Pagado"])
                 
             with c2:
                 destino = st.text_input("Destino / Institución")
@@ -304,11 +306,14 @@ elif menu == "💸 Registro de Gastos":
             detalle = st.text_area("Detalles adicionales")
             
             if st.button("Guardar Gasto (Registrar)", type="primary"):
-                cur = conn.cursor()
-                cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto, estado_pago) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
-                            (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional, estado_pago))
-                cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
-                conn.commit(); st.success("✅ Guardado exitosamente"); st.rerun()
+                if estado_pago == "-- Seleccione --":
+                    st.error("⚠️ Por favor, seleccione si el gasto está Pendiente o Pagado antes de guardar.")
+                else:
+                    cur = conn.cursor()
+                    cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto, estado_pago) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
+                                (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional, estado_pago))
+                    cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
+                    conn.commit(); st.success("✅ Guardado exitosamente"); st.rerun()
         
         with t_edit_gasto:
             df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.estado_pago, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
@@ -327,8 +332,12 @@ elif menu == "💸 Registro de Gastos":
                             idx_cat = lista_categorias.index(g_data['tipo_gasto']) if g_data['tipo_gasto'] in lista_categorias else 0
                             n_tipo_g = st.selectbox("Categoría Principal", lista_categorias, index=idx_cat)
                             n_monto = st.number_input("Monto (€)", min_value=0.0, value=float(g_data['monto']))
-                            estado_actual = str(g_data['estado_pago']) if pd.notna(g_data['estado_pago']) else "Pagado"
-                            n_estado_pago = st.radio("Estado del Pago (Edición)", ["Pagado", "Pendiente"], index=0 if estado_actual == "Pagado" else 1)
+                            
+                            # ESTADO SEGURO EN EDICIÓN
+                            estado_actual = str(g_data['estado_pago']).strip() if pd.notna(g_data['estado_pago']) else "Pendiente"
+                            idx_est = 1 if estado_actual == "Pagado" else 0
+                            n_estado_pago = st.selectbox("Estado del Pago (Edición)", ["Pendiente", "Pagado"], index=idx_est)
+                            
                         with c2:
                             val_destino = "" if pd.isna(g_data['institucion_destino']) else str(g_data['institucion_destino'])
                             n_destino = st.text_input("Destino / Institución", value=val_destino)
@@ -396,7 +405,6 @@ elif menu == "💳 Estado de Pagos":
                     st.markdown("**¿Cuáles de estos gastos vas a cancelar hoy?**")
                     df_pen_filtrado['display'] = df_pen_filtrado['fecha'].astype(str) + " | " + df_pen_filtrado['placa'] + " | " + df_pen_filtrado['tipo_gasto'] + " | €" + df_pen_filtrado['monto'].astype(str)
                     
-                    # Permite seleccionar varios a la vez
                     gastos_a_pagar = st.multiselect("Seleccione uno o varios gastos (puede escribir para buscar):", df_pen_filtrado['display'].tolist())
                     
                     if st.form_submit_button("✅ Marcar Seleccionados como PAGADOS"):
@@ -404,7 +412,6 @@ elif menu == "💳 Estado de Pagos":
                             ids_a_pagar = df_pen_filtrado[df_pen_filtrado['display'].isin(gastos_a_pagar)]['id'].tolist()
                             cur = conn.cursor()
                             
-                            # Actualización segura y masiva de los IDs seleccionados
                             formato_ids = ','.join(['%s'] * len(ids_a_pagar))
                             query = f"UPDATE gastos SET estado_pago = 'Pagado' WHERE id IN ({formato_ids})"
                             cur.execute(query, tuple(ids_a_pagar))
