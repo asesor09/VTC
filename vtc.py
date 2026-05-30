@@ -467,4 +467,33 @@ elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
     with st.form("fu"):
         nom = st.text_input("Nombre"); usr = st.text_input("Usuario"); clv = st.text_input("Clave")
         rol = st.selectbox("Rol", ["vendedor", "admin"])
-        if
+        if st.form_submit_button("👤 Crear"):
+            if usr.strip() == "":
+                st.warning("El usuario no puede estar vacío.")
+            else:
+                cur = conn.cursor()
+                try:
+                    cur.execute("INSERT INTO usuarios (nombre, usuario, clave, rol) VALUES (%s,%s,%s,%s)", (nom, usr, hashlib.sha256(clv.encode()).hexdigest(), rol))
+                    conn.commit(); st.success("✅ Usuario creado"); time.sleep(1.5); st.rerun()
+                except Exception as e:
+                    conn.rollback()
+                    st.error("⚠️ Error: Este nombre de usuario ya existe en el sistema.")
+    
+    st.dataframe(pd.read_sql("SELECT nombre, usuario, rol FROM usuarios", conn), use_container_width=True)
+    conn.close()
+
+# --- 🔒 CONFIG. ALERTAS ---
+elif menu == "🔒 Config. Alertas":
+    st.title("🔒 Configuración Segura")
+    conn = conectar_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM configuracion WHERE id = 1"); act = cur.fetchone()
+    with st.form("f_conf"):
+        rem = st.text_input("Gmail Remitente", value=act[1] if act else "")
+        cla = st.text_input("Clave Gmail (16 letras)", type="password", value=act[2] if act else "")
+        des = st.text_input("Correo Destino", value=act[3] if act else "")
+        if st.form_submit_button("💾 Guardar"):
+            cur.execute('''INSERT INTO configuracion (id, email_remitente, email_clave, email_destino)
+                           VALUES (1, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET email_remitente=EXCLUDED.email_remitente, email_clave=EXCLUDED.email_clave, email_destino=EXCLUDED.email_destino''', (rem, cla, des))
+            conn.commit(); st.success("✅ Guardado."); time.sleep(1.5); st.rerun()
+    conn.close()
