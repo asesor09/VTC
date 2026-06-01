@@ -103,7 +103,7 @@ if not st.session_state['logged_in']:
                     conn.close()
         except Exception as e:
             st.sidebar.error(f"Error de conexión: {e}")
-    st.title("🚐 Sistema de Gestión de Transporte")
+    st.title("🚐 Sistema de Gestión de Transporte. VTC")
     st.info("👋 Bienvenido. Por favor, ingrese sus credenciales en la barra lateral para acceder al sistema.")
     st.stop()
 
