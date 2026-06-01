@@ -6,7 +6,7 @@ import hashlib
 import time
 
 # --- CONFIGURACIÓN DE CONEXIÓN GLOBAL (NEON) ---
-DB_URL = "postgresql://neondb_owner:npg_Hw6lhgzCrm0B@ep-winter-mud-aqkidkqi-pooler.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require&connect_timeout=10"
+DB_URL = st.secrets["DB_URL"]
 
 def conectar_db():
     return psycopg2.connect(DB_URL)
