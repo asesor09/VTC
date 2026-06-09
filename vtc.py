@@ -185,7 +185,8 @@ if menu == "🏠 Inicio":
 elif menu == "🚚 Gestión de Vehículos":
     t_reg, t_edit, t_ver = st.tabs(["➕ Registrar", "✏️ Editar", "🔍 Ver Flota"])
     with t_reg:
-        with st.form("reg_vehiculo"):
+        # clear_on_submit=True limpia los campos al guardar
+        with st.form("reg_vehiculo", clear_on_submit=True):
             c1, c2 = st.columns(2)
             placa = c1.text_input("Placa").upper(); marca = c1.text_input("Marca")
             modelo = c1.text_input("Modelo"); cond = c2.text_input("Conductor")
@@ -232,7 +233,7 @@ elif menu == "🏷️ Categorías":
     t_cat_reg, t_cat_edit, t_cat_ver = st.tabs(["➕ Nueva Categoría", "✏️ Editar Categoría", "🔍 Ver Categorías"])
     
     with t_cat_reg:
-        with st.form("form_nueva_cat"):
+        with st.form("form_nueva_cat", clear_on_submit=True):
             c1, c2 = st.columns(2)
             nueva_cat = c1.text_input("Nombre de la categoría")
             precio_base = c2.number_input("Precio predeterminado (€)", min_value=0.0, value=0.0, step=100.0)
@@ -288,21 +289,25 @@ elif menu == "💸 Registro de Gastos":
             st.subheader("Registrar Nuevo Gasto")
             c1, c2 = st.columns(2)
             with c1:
-                v_sel = st.selectbox("Vehículo", v_data['placa'])
+                # Añadimos 'key' a los campos para poder forzar su limpieza después
+                v_sel = st.selectbox("Vehículo", v_data['placa'], key="rg_vehiculo")
                 v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
-                tipo_g = st.selectbox("Categoría Principal", lista_categorias)
+                tipo_g = st.selectbox("Categoría Principal", lista_categorias, key="rg_tipo_gasto")
+                
+                # El Monto se deja sin key para que su precio dinámico siga funcionando perfecto
                 precio_defecto = float(cat_dict.get(tipo_g, 0.0))
                 monto = st.number_input("Monto (€)", min_value=0.0, value=precio_defecto, step=100.0)
-                estado_pago = st.selectbox("Estado del Pago", ["-- Seleccione --", "Pendiente", "Pagado"])
+                
+                estado_pago = st.selectbox("Estado del Pago", ["-- Seleccione --", "Pendiente", "Pagado"], key="rg_estado_pago")
                 
             with c2:
-                destino = st.text_input("Destino / Institución")
-                fecha = st.date_input("Fecha", datetime.now().date())
-                aplica_concepto = st.radio("¿Ingresar concepto específico?", ["No", "Sí"])
-                concepto_adicional = st.text_input("Escribe el concepto") if aplica_concepto == "Sí" else ""
-                kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0)
+                destino = st.text_input("Destino / Institución", key="rg_destino")
+                fecha = st.date_input("Fecha", datetime.now().date(), key="rg_fecha")
+                aplica_concepto = st.radio("¿Ingresar concepto específico?", ["No", "Sí"], key="rg_aplica_concepto")
+                concepto_adicional = st.text_input("Escribe el concepto", key="rg_concepto") if aplica_concepto == "Sí" else ""
+                kilometraje = st.number_input("Kilometraje al momento del gasto", min_value=0, key="rg_kilometraje")
                 
-            detalle = st.text_area("Detalles adicionales")
+            detalle = st.text_area("Detalles adicionales", key="rg_detalle")
             
             if st.button("Guardar Gasto (Registrar)", type="primary"):
                 if estado_pago == "-- Seleccione --":
@@ -312,7 +317,17 @@ elif menu == "💸 Registro de Gastos":
                     cur.execute("INSERT INTO gastos (vehiculo_id, tipo_gasto, monto, institucion_destino, fecha, detalle, kilometraje, aplica_concepto, concepto, estado_pago) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)", 
                                 (v_id, tipo_g, monto, destino, fecha, detalle, kilometraje, aplica_concepto, concepto_adicional, estado_pago))
                     cur.execute("UPDATE vehiculos SET km_actual = GREATEST(km_actual, %s) WHERE id = %s", (kilometraje, v_id))
-                    conn.commit(); st.success("✅ Guardado exitosamente"); time.sleep(1.5); st.rerun()
+                    conn.commit()
+                    st.success("✅ Guardado exitosamente")
+                    time.sleep(1.5)
+                    
+                    # MAGIA AQUÍ: Esto "blanquea" y resetea todos los campos después de guardar
+                    claves_a_limpiar = ["rg_vehiculo", "rg_tipo_gasto", "rg_estado_pago", "rg_destino", "rg_fecha", "rg_aplica_concepto", "rg_concepto", "rg_kilometraje", "rg_detalle"]
+                    for key in claves_a_limpiar:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                            
+                    st.rerun()
         
         with t_edit_gasto:
             df_edit = pd.read_sql("SELECT g.id, g.fecha, v.placa, g.tipo_gasto, g.monto, g.estado_pago, g.institucion_destino, g.detalle, g.kilometraje, g.aplica_concepto, g.concepto, g.vehiculo_id FROM gastos g JOIN vehiculos v ON g.vehiculo_id = v.id ORDER BY g.fecha DESC", conn)
@@ -436,7 +451,7 @@ elif menu == "🛠️ Mantenimientos":
     if not v_data.empty:
         c1, c2 = st.columns(2)
         with c1:
-            with st.form("form_mant"):
+            with st.form("form_mant", clear_on_submit=True):
                 v_sel = st.selectbox("Vehículo", v_data['placa'])
                 v_id = int(v_data[v_data['placa'] == v_sel]['id'].values[0])
                 desc = st.text_area("Descripción")
@@ -464,7 +479,7 @@ elif menu == "🛠️ Mantenimientos":
 elif menu == "⚙️ Usuarios" and st.session_state.u_rol == "admin":
     st.title("⚙️ Usuarios")
     conn = conectar_db()
-    with st.form("fu"):
+    with st.form("fu", clear_on_submit=True):
         nom = st.text_input("Nombre"); usr = st.text_input("Usuario"); clv = st.text_input("Clave")
         rol = st.selectbox("Rol", ["vendedor", "admin"])
         if st.form_submit_button("👤 Crear"):
